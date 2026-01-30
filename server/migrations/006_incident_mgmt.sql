@@ -1,0 +1,27 @@
+ALTER TABLE incidents
+  ADD COLUMN IF NOT EXISTS ack_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS ack_by TEXT,
+  ADD COLUMN IF NOT EXISTS ack_note TEXT,
+  ADD COLUMN IF NOT EXISTS owner TEXT;
+
+CREATE TABLE IF NOT EXISTS incident_notes (
+  id BIGSERIAL PRIMARY KEY,
+  incident_id BIGINT NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+  author TEXT NOT NULL,
+  note TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS report_recipients (
+  id SERIAL PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS report_runs (
+  id SERIAL PRIMARY KEY,
+  type TEXT NOT NULL,
+  sent_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_report_runs_type ON report_runs (type, sent_at DESC);

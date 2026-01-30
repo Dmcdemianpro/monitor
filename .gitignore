@@ -1,0 +1,12 @@
+node_modules/
+server/node_modules/
+web/node_modules/
+server/dist/
+web/dist/
+.env
+server/.env
+web/.env
+server/node
+server/npm
+server/tsx
+server/moni-d-server@0.1.0
