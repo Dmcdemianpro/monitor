@@ -1,57 +1,57 @@
 # Moni-D (Node + React)
 
-Moni-D is a standalone monitoring app that checks TCP connectivity for your nodes, stores history in Postgres, and sends alerts via SMTP. The dashboard is open (no login) and designed for fast operations.
+Moni-D es una app de monitoreo independiente que revisa conectividad TCP de tus nodos, guarda historial en Postgres y envia alertas via SMTP. El dashboard es abierto (sin login) y esta pensado para operacion rapida.
 
 ## Stack
 - Backend: Node.js + Fastify + TypeScript
 - Frontend: React + Vite + TypeScript
-- Database: PostgreSQL
+- Base de datos: PostgreSQL
 
-## Prerequisites
+## Requisitos
 - Node.js 18+
-- PostgreSQL (local for dev, Linux server for prod)
+- PostgreSQL (local para dev, Linux server para prod)
 
-## Quick start (Windows dev)
-1) Create the database (note the quotes because the name has a dash):
+## Inicio rapido (Windows dev)
+1) Crea la base de datos (nota: comillas porque el nombre tiene guion):
 ```
 CREATE DATABASE "moni-D";
 ```
-2) Update `C:\moni-D\server\.env` with your SMTP + admin credentials.
-3) Install dependencies:
+2) Actualiza `C:\moni-D\server\.env` con tus credenciales SMTP y admin.
+3) Instala dependencias:
 ```
 cd C:\moni-D\server
 npm install
 cd ..\web
 npm install
 ```
-4) Run migrations:
+4) Ejecuta migraciones:
 ```
 cd C:\moni-D\server
 npm run migrate
 ```
-5) Start backend:
+5) Levanta backend:
 ```
 npm run dev
 ```
-6) Start frontend:
+6) Levanta frontend:
 ```
 cd C:\moni-D\web
 npm run dev
 ```
 
-The frontend reads `VITE_API_URL` from `C:\moni-D\web\.env`.
+La web lee `VITE_API_URL` desde `C:\moni-D\web\.env`.
 
-## Admin access
-The dashboard is open. Administration requires login.
+## Acceso admin
+El dashboard es abierto. Administracion requiere login.
 
-Required env vars in `C:\moni-D\server\.env`:
+Variables requeridas en `C:\moni-D\server\.env`:
 ```
-ADMIN_USER=your_user
-ADMIN_PASS=your_pass
-AUTH_SECRET=long_random_string
+ADMIN_USER=tu_usuario
+ADMIN_PASS=tu_password
+AUTH_SECRET=cadena_larga_aleatoria
 ```
 
-Optional roles:
+Roles opcionales:
 ```
 OPERATOR_USER=ops_user
 OPERATOR_PASS=ops_pass
@@ -59,38 +59,38 @@ VIEWER_USER=view_user
 VIEWER_PASS=view_pass
 ```
 
-## Core behavior
-- Nodes check on `checkIntervalSec` while healthy and `retryIntervalSec` while down.
-- History is retained for `RETENTION_DAYS` (default 90 days).
-- Incidents open on first failure and close on recovery.
+## Comportamiento base
+- Los nodos usan `checkIntervalSec` cuando estan OK y `retryIntervalSec` cuando caen.
+- El historial se retiene segun `RETENTION_DAYS` (default 90 dias).
+- Los incidentes abren en la primera falla y cierran al recuperar.
 
-## Alerting
-- Email alerts use SMTP credentials.
-- Extra channels (Webhook/Teams/Slack/SMS) are configured from Admin > Alertas.
-- Silences (maintenance windows) can be scoped by node/area/group/tag/criticality.
-- Escalation policies send additional alerts after a delay.
+## Alertas
+- Email usa credenciales SMTP.
+- Canales extra (Webhook/Teams/Slack/SMS) se configuran en Admin > Alertas.
+- Silencios (ventanas de mantenimiento) por nodo/area/grupo/tag/criticidad.
+- Escalamiento envia alertas adicionales despues de un delay.
 
-## Weekly report
-Configure recipients in Admin > Reportes. The server sends a weekly summary when:
+## Reporte semanal
+Configura destinatarios en Admin > Reportes. El servidor envia el resumen semanal cuando:
 ```
 REPORT_WEEKDAY=1   # 0=Sunday, 1=Monday, ...
-REPORT_HOUR=8      # 24h format
+REPORT_HOUR=8      # formato 24h
 ```
-The weekly email includes PDF + CSV attachments (CSV also available via Admin > Incidentes export).
+El correo semanal incluye adjuntos PDF + CSV (CSV tambien disponible via Admin > Incidentes export).
 
-## Agent metrics
-Optional server metrics can be pushed via:
+## Metricas por agente
+Metricas opcionales del servidor pueden enviarse via:
 ```
 POST /api/agent/metrics
-X-Agent-Key: your_key
+X-Agent-Key: tu_key
 ```
 Env:
 ```
-AGENT_KEY=your_key
+AGENT_KEY=tu_key
 ```
-Scripts are available in `C:\moni-D\agent` (see `C:\moni-D\agent\README.md`).
+Scripts disponibles en `C:\moni-D\agent` (ver `C:\moni-D\agent\README.md`).
 
-## API (summary)
+## API (resumen)
 - `GET /api/nodes`
 - `POST /api/nodes` (admin)
 - `PUT /api/nodes/:id` (admin)
@@ -108,7 +108,7 @@ Scripts are available in `C:\moni-D\agent` (see `C:\moni-D\agent\README.md`).
 - `GET /api/agent/latest` (admin)
 - `GET /api/audit` (admin)
 
-## Notes
-- Dashboard is open (no auth) as requested.
-- SMTP settings live in `C:\moni-D\server\.env`.
-- For production, run the backend as a service (systemd/PM2) and build the web app with `npm run build`.
+## Notas
+- El dashboard es abierto (sin auth) segun lo solicitado.
+- SMTP vive en `C:\moni-D\server\.env`.
+- Para produccion: ejecuta el backend como servicio (systemd/PM2) y compila el frontend con `npm run build`.
