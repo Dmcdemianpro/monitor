@@ -79,7 +79,7 @@ type LoadState = {
   lastUpdated: string | null;
 };
 
-type View = 'dashboard' | 'admin';
+type View = 'dashboard' | 'admin' | 'guide';
 
 type StatusTone = 'ok' | 'bad' | 'warn' | 'muted';
 
@@ -866,6 +866,12 @@ export default function App() {
             >
               Administracion
             </button>
+            <button
+              className={`tab-btn ${view === 'guide' ? 'active' : ''}`}
+              onClick={() => setView('guide')}
+            >
+              Guia
+            </button>
           </nav>
           {authUser ? (
             <div className="auth-meta">
@@ -1072,6 +1078,112 @@ export default function App() {
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+        </section>
+      ) : view === 'guide' ? (
+        <section className="guide-view">
+          <div className="panel guide-hero">
+            <div className="panel-header">
+              <div>
+                <h2>Guia y puesta en marcha</h2>
+                <span className="panel-sub">Que hace Moni-D y como se usa e instala.</span>
+              </div>
+            </div>
+            <div className="guide-hero-body">
+              <div className="guide-hero-text">
+                <p>
+                  Moni-D monitorea servicios TCP por IP y puerto, guarda historial en Postgres y
+                  dispara alertas cuando un nodo cae. El dashboard es abierto y la administracion
+                  requiere login.
+                </p>
+                <div className="guide-pill-row">
+                  <span className="status-pill ok">Activo</span>
+                  <span className="status-pill bad">Inactivo</span>
+                  <span className="status-pill muted">Pausado</span>
+                </div>
+              </div>
+              <div className="guide-hero-meta">
+                <div className="guide-meta-row">
+                  <span className="label">Dashboard</span>
+                  <span className="mono">http://localhost:5173</span>
+                </div>
+                <div className="guide-meta-row">
+                  <span className="label">API</span>
+                  <span className="mono">http://localhost:4000</span>
+                </div>
+                <div className="guide-meta-row">
+                  <span className="label">Base de datos</span>
+                  <span>PostgreSQL</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="guide-grid">
+            <div className="panel guide-card">
+              <h3>Que monitorea</h3>
+              <ul className="guide-list">
+                <li>Disponibilidad TCP por IP y puerto.</li>
+                <li>Uptime, latencia promedio e historial.</li>
+                <li>Incidentes con notas y responsable.</li>
+                <li>Alertas por correo y canales extra.</li>
+              </ul>
+            </div>
+            <div className="panel guide-card">
+              <h3>Como se aplica</h3>
+              <ol className="guide-steps">
+                <li>Ir a Administracion > Nodos.</li>
+                <li>Agregar nombre, IP, puerto y criticidad.</li>
+                <li>Definir intervalos y destinatarios.</li>
+                <li>Configurar alertas, silencios y escalamiento.</li>
+                <li>Revisar incidentes y exportar reportes.</li>
+              </ol>
+            </div>
+            <div className="panel guide-card">
+              <h3>Instalacion local</h3>
+              <p>Para pruebas en Windows con Postgres local.</p>
+              <pre className="guide-code">
+                <code>{`cd C:\\moni-D\\server
+npm install
+npm run migrate
+npm run dev
+
+cd ..\\web
+npm install
+npm run dev`}</code>
+              </pre>
+            </div>
+            <div className="panel guide-card">
+              <h3>Instalacion en servidor</h3>
+              <p>Recomendado en Linux con servicio persistente.</p>
+              <ul className="guide-list">
+                <li>Configura .env en server y web.</li>
+                <li>Usa PM2 o systemd para el backend.</li>
+                <li>Compila el frontend con npm run build.</li>
+                <li>Sirve el build con Nginx o similar.</li>
+              </ul>
+            </div>
+            <div className="panel guide-card">
+              <h3>Agente opcional</h3>
+              <p>Para CPU, RAM y disco desde servidores.</p>
+              <pre className="guide-code">
+                <code>{`# Windows (PowerShell)
+C:\\moni-D\\agent\\windows-agent.ps1
+
+# Linux
+bash /opt/moni-d/agent/linux-agent.sh`}</code>
+              </pre>
+              <div className="guide-note">Requiere AGENT_KEY en el backend.</div>
+            </div>
+            <div className="panel guide-card">
+              <h3>Buenas practicas</h3>
+              <ul className="guide-list">
+                <li>Define areas y grupos para filtrar rapido.</li>
+                <li>Usa criticidad Alta para servicios clinicos.</li>
+                <li>Activa ventanas de mantenimiento.</li>
+                <li>Para acceso por IP: HOST=0.0.0.0 y VITE_API_URL/CORS_ORIGIN con IP.</li>
+              </ul>
             </div>
           </div>
         </section>
