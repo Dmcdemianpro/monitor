@@ -89,6 +89,7 @@ Env:
 AGENT_KEY=tu_key
 ```
 Scripts disponibles en `C:\moni-D\agent` (ver `C:\moni-D\agent\README.md`).
+Paso a paso para instalar agentes: `C:\moni-D\agent\README.md`.
 
 ## API (resumen)
 - `GET /api/nodes`
