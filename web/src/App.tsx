@@ -1167,14 +1167,18 @@ npm run dev`}</code>
             <div className="panel guide-card">
               <h3>Agente opcional</h3>
               <p>Para CPU, RAM y disco desde servidores.</p>
+              <ul className="guide-list">
+                <li>Define AGENT_KEY en el backend y reinicia.</li>
+                <li>Obtiene el NodeId en Administracion &gt; Nodos.</li>
+              </ul>
               <pre className="guide-code">
                 <code>{`# Windows (PowerShell)
-C:\\moni-D\\agent\\windows-agent.ps1
+powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl http://TU_IP:4000 -AgentKey TU_KEY -IntervalSec 60
 
 # Linux
-bash /opt/moni-d/agent/linux-agent.sh`}</code>
+./linux-agent.sh --node-id 5 --api-url http://TU_IP:4000 --agent-key TU_KEY --interval 60`}</code>
               </pre>
-              <div className="guide-note">Requiere AGENT_KEY en el backend.</div>
+              <div className="guide-note">Linux persistente: sudo ./install-linux-agent.sh</div>
             </div>
             <div className="panel guide-card">
               <h3>Buenas practicas</h3>

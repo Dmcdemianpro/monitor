@@ -1,41 +1,64 @@
 # Moni-D Agent Scripts
 
-These scripts push CPU/RAM/disk metrics to the Moni-D backend.
+Estos scripts envian metricas CPU/RAM/disco al backend Moni-D.
 
-## Prerequisites
-- Backend has `AGENT_KEY` set in `C:\moni-D\server\.env`.
-- Backend is reachable at `http://HOST:4000`.
+## Requisitos
+- Backend con `AGENT_KEY` definido en `.env`.
+- API accesible en `http://HOST:4000`.
 
-## Node ID
-You need the `nodeId` for each server:
-```
-GET http://HOST:4000/api/nodes
-```
-Use the `id` field from the response.
+## Obtener NodeId
+- Desde UI: Administracion > Nodos.
+- O via API: `GET http://HOST:4000/api/nodes`.
 
 ## Windows (PowerShell)
 ```
-.\windows-agent.ps1 -NodeId 1 -ApiUrl http://10.7.50.58:4000 -AgentKey YOUR_KEY -IntervalSec 60
+.\windows-agent.ps1 -NodeId 1 -ApiUrl http://10.7.50.58:4000 -AgentKey TU_KEY -IntervalSec 60
 ```
-Run once:
+Ejecutar una sola vez:
 ```
-.\windows-agent.ps1 -NodeId 1 -ApiUrl http://10.7.50.58:4000 -AgentKey YOUR_KEY -Once
+.\windows-agent.ps1 -NodeId 1 -ApiUrl http://10.7.50.58:4000 -AgentKey TU_KEY -Once
 ```
 
-If scripts are blocked:
+Si hay bloqueo de scripts:
 ```
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
 ## Linux (bash)
 ```
-./linux-agent.sh --node-id 1 --api-url http://10.7.50.58:4000 --agent-key YOUR_KEY --interval 60
+./linux-agent.sh --node-id 1 --api-url http://10.7.50.58:4000 --agent-key TU_KEY --interval 60
 ```
-Run once:
+Ejecutar una sola vez:
 ```
-./linux-agent.sh --node-id 1 --api-url http://10.7.50.58:4000 --agent-key YOUR_KEY --once
+./linux-agent.sh --node-id 1 --api-url http://10.7.50.58:4000 --agent-key TU_KEY --once
 ```
 
-## Notes
-- Disk usage is the worst (max) percent across mounted disks.
-- Windows script sends top 5 processes by CPU as optional detail.
+## Linux (systemd)
+1) Copia el script:
+```
+sudo mkdir -p /opt/moni-d/agent
+sudo cp linux-agent.sh /opt/moni-d/agent/linux-agent.sh
+sudo chmod +x /opt/moni-d/agent/linux-agent.sh
+```
+2) Crea el archivo de entorno:
+```
+sudo mkdir -p /etc/moni-d
+sudo cp agent.env.example /etc/moni-d/agent.env
+sudo nano /etc/moni-d/agent.env
+```
+3) Instala el servicio:
+```
+sudo cp moni-d-agent.service /etc/systemd/system/moni-d-agent.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now moni-d-agent.service
+sudo systemctl status --no-pager moni-d-agent.service
+```
+
+## Instalador rapido (opcional)
+```
+sudo ./install-linux-agent.sh
+```
+
+## Notas
+- Disco es el maximo uso (%) entre discos montados.
+- Windows incluye top 5 procesos por CPU como detalle opcional.

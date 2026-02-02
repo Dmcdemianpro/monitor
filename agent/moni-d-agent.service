@@ -1,0 +1,16 @@
+[Unit]
+Description=Moni-D agent metrics
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/moni-d/agent.env
+WorkingDirectory=/opt/moni-d/agent
+ExecStart=/opt/moni-d/agent/linux-agent.sh --node-id $NODE_ID --api-url $API_URL --agent-key $AGENT_KEY --interval $INTERVAL_SEC
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
