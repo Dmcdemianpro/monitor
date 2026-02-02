@@ -1133,7 +1133,7 @@ export default function App() {
             <div className="panel guide-card">
               <h3>Como se aplica</h3>
               <ol className="guide-steps">
-                <li>Ir a Administracion > Nodos.</li>
+                <li>Ir a Administracion &gt; Nodos.</li>
                 <li>Agregar nombre, IP, puerto y criticidad.</li>
                 <li>Definir intervalos y destinatarios.</li>
                 <li>Configurar alertas, silencios y escalamiento.</li>
