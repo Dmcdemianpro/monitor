@@ -169,6 +169,57 @@ export async function getActiveNodes(): Promise<NodeConfig[]> {
   }));
 }
 
+export async function getNodeConfig(nodeId: number): Promise<NodeConfig | null> {
+  const res = await pool.query(
+    `
+    SELECT id,
+           name,
+           host,
+           port,
+           enabled,
+           tls_enabled,
+           escalation_policy_id,
+           agent_enabled,
+           area,
+           group_name,
+           criticality,
+           tags,
+           check_interval_sec,
+           retry_interval_sec,
+           timeout_ms,
+           last_status
+      FROM nodes
+     WHERE id = $1
+     LIMIT 1
+    `,
+    [nodeId]
+  );
+
+  if (!res.rowCount) {
+    return null;
+  }
+
+  const row = res.rows[0];
+  return {
+    id: row.id,
+    name: row.name,
+    host: row.host,
+    port: row.port,
+    enabled: row.enabled,
+    checkIntervalSec: row.check_interval_sec,
+    retryIntervalSec: row.retry_interval_sec,
+    timeoutMs: row.timeout_ms,
+    tlsEnabled: row.tls_enabled,
+    escalationPolicyId: row.escalation_policy_id ?? null,
+    agentEnabled: row.agent_enabled ?? false,
+    area: row.area ?? null,
+    groupName: row.group_name ?? null,
+    criticality: row.criticality ?? 'MEDIUM',
+    tags: row.tags || [],
+    lastStatus: row.last_status
+  };
+}
+
 export async function getRecipientsForNode(nodeId: number): Promise<string[]> {
   const res = await pool.query(
     `
@@ -493,6 +544,13 @@ export type AgentMetric = {
   diskPct: number | null;
   loadAvg: number | null;
   processes: any;
+};
+
+export type AgentSeriesPoint = {
+  bucket: string;
+  cpuPct: number | null;
+  memPct: number | null;
+  diskPct: number | null;
 };
 
 export async function listNodeMetrics(days: number): Promise<NodeMetric[]> {
@@ -1106,7 +1164,7 @@ export async function hasAlertEvent(params: {
 }
 
 export async function recordAlertEvent(params: {
-  incidentId: number;
+  incidentId: number | null;
   nodeId: number;
   type: string;
   level?: number | null;
@@ -1242,6 +1300,47 @@ export async function recordReportRun(type: string) {
   await pool.query('INSERT INTO report_runs (type) VALUES ($1)', [type]);
 }
 
+export async function getAgentAlertState(nodeId: number): Promise<{
+  diskAlertActive: boolean;
+  lastDiskAlertAt: string | null;
+}> {
+  const res = await pool.query(
+    `
+    SELECT disk_alert_active, last_disk_alert_at
+      FROM agent_alert_state
+     WHERE node_id = $1
+     LIMIT 1
+    `,
+    [nodeId]
+  );
+
+  if (!res.rowCount) {
+    return { diskAlertActive: false, lastDiskAlertAt: null };
+  }
+
+  return {
+    diskAlertActive: Boolean(res.rows[0].disk_alert_active),
+    lastDiskAlertAt: res.rows[0].last_disk_alert_at
+  };
+}
+
+export async function setAgentDiskAlertState(params: {
+  nodeId: number;
+  active: boolean;
+  lastAlertAt: string | null;
+}) {
+  await pool.query(
+    `
+    INSERT INTO agent_alert_state (node_id, disk_alert_active, last_disk_alert_at)
+    VALUES ($1, $2, $3)
+    ON CONFLICT (node_id)
+    DO UPDATE SET disk_alert_active = EXCLUDED.disk_alert_active,
+                  last_disk_alert_at = EXCLUDED.last_disk_alert_at
+    `,
+    [params.nodeId, params.active, params.lastAlertAt]
+  );
+}
+
 export async function recordAgentMetric(params: {
   nodeId: number;
   cpuPct?: number | null;
@@ -1264,6 +1363,42 @@ export async function recordAgentMetric(params: {
       params.processes ?? null
     ]
   );
+}
+
+export async function listLatestAgentMetricsPublic(): Promise<
+  Array<AgentMetric & { nodeName: string; host: string; port: number }>
+> {
+  const res = await pool.query(
+    `
+    SELECT DISTINCT ON (m.node_id)
+           m.node_id,
+           m.collected_at,
+           m.cpu_pct,
+           m.mem_pct,
+           m.disk_pct,
+           m.load_avg,
+           n.name AS node_name,
+           n.host,
+           n.port
+      FROM agent_metrics m
+      JOIN nodes n ON n.id = m.node_id
+     WHERE n.agent_enabled = true
+     ORDER BY m.node_id, m.collected_at DESC
+    `
+  );
+
+  return res.rows.map((row) => ({
+    nodeId: row.node_id,
+    collectedAt: row.collected_at,
+    cpuPct: row.cpu_pct === null ? null : Number(row.cpu_pct),
+    memPct: row.mem_pct === null ? null : Number(row.mem_pct),
+    diskPct: row.disk_pct === null ? null : Number(row.disk_pct),
+    loadAvg: row.load_avg === null ? null : Number(row.load_avg),
+    processes: null,
+    nodeName: row.node_name,
+    host: row.host,
+    port: row.port
+  }));
 }
 
 export async function listLatestAgentMetrics(): Promise<
@@ -1298,6 +1433,34 @@ export async function listLatestAgentMetrics(): Promise<
     nodeName: row.node_name,
     host: row.host,
     port: row.port
+  }));
+}
+
+export async function listAgentSeries(params: {
+  nodeId: number;
+  days: number;
+  bucket: 'hour' | 'day';
+}): Promise<AgentSeriesPoint[]> {
+  const res = await pool.query(
+    `
+    SELECT date_trunc('${params.bucket}', m.collected_at) AS bucket,
+           AVG(m.cpu_pct) AS cpu_pct,
+           AVG(m.mem_pct) AS mem_pct,
+           AVG(m.disk_pct) AS disk_pct
+      FROM agent_metrics m
+     WHERE m.collected_at >= now() - ($1 || ' days')::interval
+       AND m.node_id = $2
+     GROUP BY bucket
+     ORDER BY bucket
+    `,
+    [params.days, params.nodeId]
+  );
+
+  return res.rows.map((row) => ({
+    bucket: row.bucket,
+    cpuPct: row.cpu_pct === null ? null : Number(row.cpu_pct),
+    memPct: row.mem_pct === null ? null : Number(row.mem_pct),
+    diskPct: row.disk_pct === null ? null : Number(row.disk_pct)
   }));
 }
 

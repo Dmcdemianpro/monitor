@@ -87,6 +87,7 @@ X-Agent-Key: tu_key
 Env:
 ```
 AGENT_KEY=tu_key
+DISK_ALERT_PCT=90
 ```
 Scripts disponibles en `C:\moni-D\agent` (ver `C:\moni-D\agent\README.md`).
 Paso a paso para instalar agentes: `C:\moni-D\agent\README.md`.

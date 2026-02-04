@@ -97,6 +97,13 @@ export type AgentMetric = {
   processes: any;
 };
 
+export type AgentSeriesPoint = {
+  bucket: string;
+  cpuPct: number | null;
+  memPct: number | null;
+  diskPct: number | null;
+};
+
 export type AuditLog = {
   id: number;
   actor: string | null;

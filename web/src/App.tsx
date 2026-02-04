@@ -13,6 +13,8 @@ import {
   deleteSilence,
   exportIncidents,
   fetchAgentMetrics,
+  fetchAgentSeries,
+  fetchAgentSummary,
   fetchAlertChannels,
   fetchAuditLogs,
   fetchAuthUser,
@@ -48,7 +50,8 @@ import type {
   NodeRecord,
   ReportRecipient,
   Silence,
-  AuthUser
+  AuthUser,
+  AgentSeriesPoint
 } from './types';
 
 const emptyForm = {
@@ -91,6 +94,7 @@ type StatusInfo = {
 const CRITICALITY_OPTIONS = ['HIGH', 'MEDIUM', 'LOW'] as const;
 const METRICS_DAYS = 30;
 const LATENCY_DAYS = 7;
+const DISK_ALERT_PCT = 90;
 
 function parseList(input: string) {
   return input
@@ -208,6 +212,10 @@ export default function App() {
   const [reportRecipients, setReportRecipients] = useState<ReportRecipient[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [agentMetrics, setAgentMetrics] = useState<AgentMetric[]>([]);
+  const [agentSummary, setAgentSummary] = useState<AgentMetric[]>([]);
+  const [agentSeries, setAgentSeries] = useState<AgentSeriesPoint[]>([]);
+  const [agentSeriesNodeId, setAgentSeriesNodeId] = useState<number | null>(null);
+  const [agentSeriesDays, setAgentSeriesDays] = useState(7);
   const [incidentNotes, setIncidentNotes] = useState<IncidentNote[]>([]);
   const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null);
   const [incidentNoteDraft, setIncidentNoteDraft] = useState('');
@@ -336,6 +344,10 @@ export default function App() {
     return new Map(nodeMetrics.map((metric) => [metric.nodeId, metric]));
   }, [nodeMetrics]);
 
+  const agentSummaryMap = useMemo(() => {
+    return new Map(agentSummary.map((metric) => [metric.nodeId, metric]));
+  }, [agentSummary]);
+
   const areaMetricsSorted = useMemo(() => {
     return [...areaMetrics].sort((a, b) => a.area.localeCompare(b.area));
   }, [areaMetrics]);
@@ -345,6 +357,36 @@ export default function App() {
       .map((point) => point.avgLatencyMs)
       .filter((value): value is number => value !== null && value !== undefined);
   }, [latencySeries]);
+
+  const agentSeriesCpu = useMemo(() => {
+    return agentSeries
+      .map((point) => point.cpuPct)
+      .filter((value): value is number => value !== null && value !== undefined);
+  }, [agentSeries]);
+
+  const agentSeriesMem = useMemo(() => {
+    return agentSeries
+      .map((point) => point.memPct)
+      .filter((value): value is number => value !== null && value !== undefined);
+  }, [agentSeries]);
+
+  const agentSeriesDisk = useMemo(() => {
+    return agentSeries
+      .map((point) => point.diskPct)
+      .filter((value): value is number => value !== null && value !== undefined);
+  }, [agentSeries]);
+
+  const agentSeriesLatest = useMemo(() => {
+    if (!agentSeries.length) {
+      return null;
+    }
+    return agentSeries[agentSeries.length - 1];
+  }, [agentSeries]);
+
+  const agentDiskHigh =
+    agentSeriesLatest?.diskPct !== null &&
+    agentSeriesLatest?.diskPct !== undefined &&
+    agentSeriesLatest.diskPct >= DISK_ALERT_PCT;
 
   const selectedIncident = useMemo(() => {
     if (!selectedIncidentId) {
@@ -358,18 +400,21 @@ export default function App() {
     try {
       const areaParam = areaFilter === 'all' ? undefined : areaFilter;
       const groupParam = groupFilter === 'all' ? undefined : groupFilter;
-      const [nodesRes, incidentsRes, nodeMetricsRes, areaMetricsRes, latencyRes] = await Promise.all([
-        fetchNodes(),
-        fetchIncidents(90),
-        fetchNodeMetrics(METRICS_DAYS),
-        fetchAreaMetrics(METRICS_DAYS),
-        fetchLatencySeries({ days: LATENCY_DAYS, bucket: 'hour', area: areaParam, groupName: groupParam })
-      ]);
+      const [nodesRes, incidentsRes, nodeMetricsRes, areaMetricsRes, latencyRes, agentSummaryRes] =
+        await Promise.all([
+          fetchNodes(),
+          fetchIncidents(90),
+          fetchNodeMetrics(METRICS_DAYS),
+          fetchAreaMetrics(METRICS_DAYS),
+          fetchLatencySeries({ days: LATENCY_DAYS, bucket: 'hour', area: areaParam, groupName: groupParam }),
+          fetchAgentSummary()
+        ]);
       setNodes(nodesRes.nodes);
       setIncidents(incidentsRes.incidents);
       setNodeMetrics(nodeMetricsRes.metrics);
       setAreaMetrics(areaMetricsRes.metrics);
       setLatencySeries(latencyRes.series);
+      setAgentSummary(agentSummaryRes.metrics);
       setState({ loading: false, error: null, lastUpdated: new Date().toISOString() });
     } catch (err: any) {
       setState({ loading: false, error: err?.message || 'Failed to load data', lastUpdated: null });
@@ -432,6 +477,35 @@ export default function App() {
       loadAdminData();
     }
   }, [view, authUser, adminTab]);
+
+  useEffect(() => {
+    if (adminTab !== 'agents' || !authUser) {
+      return;
+    }
+    if (!agentSeriesNodeId && agentMetrics.length) {
+      setAgentSeriesNodeId(agentMetrics[0].nodeId);
+    }
+  }, [adminTab, authUser, agentMetrics, agentSeriesNodeId]);
+
+  useEffect(() => {
+    if (adminTab !== 'agents' || !authUser || !agentSeriesNodeId) {
+      return;
+    }
+    const loadSeries = async () => {
+      try {
+        const bucket = agentSeriesDays <= 2 ? 'hour' : 'day';
+        const res = await fetchAgentSeries({
+          nodeId: agentSeriesNodeId,
+          days: agentSeriesDays,
+          bucket
+        });
+        setAgentSeries(res.series);
+      } catch (err: any) {
+        setAuthError(err?.message || 'No se pudo cargar el historico');
+      }
+    };
+    loadSeries();
+  }, [adminTab, authUser, agentSeriesNodeId, agentSeriesDays]);
 
   const resetForm = () => setForm(emptyForm);
 
@@ -549,6 +623,8 @@ export default function App() {
     setReportRecipients([]);
     setAuditLogs([]);
     setAgentMetrics([]);
+    setAgentSeries([]);
+    setAgentSeriesNodeId(null);
     setAdminTab('nodes');
     setChannelForm({ id: 0, name: '', type: 'webhook', enabled: true, url: '' });
     setSilenceForm({
@@ -951,16 +1027,22 @@ export default function App() {
                   <span>Servicio</span>
                   <span>Area</span>
                   <span>Host</span>
+                  <span>Recursos</span>
                   <span>Uptime 30d</span>
                   <span>Ultimo chequeo</span>
                 </div>
                 {sortedNodes.map((node) => {
                   const status = getStatus(node);
                   const metrics = nodeMetricsMap.get(node.id);
+                  const agentMetric = agentSummaryMap.get(node.id);
                   const area = normalizeLabel(node.area);
                   const criticality = node.criticality || 'MEDIUM';
                   const uptimePct = metrics?.uptimePct ?? null;
                   const avgLatency = metrics?.avgLatencyMs ?? null;
+                  const diskHigh =
+                    agentMetric?.diskPct !== null &&
+                    agentMetric?.diskPct !== undefined &&
+                    agentMetric.diskPct >= DISK_ALERT_PCT;
                   return (
                     <div className={`service-row ${status.tone}`} key={node.id}>
                       <span className={`status-pill ${status.tone}`}>{status.label}</span>
@@ -971,6 +1053,17 @@ export default function App() {
                       <span className="service-area">{area}</span>
                       <span className="service-host mono">
                         {node.host}:{node.port}
+                      </span>
+                      <span className={`service-resources ${diskHigh ? 'bad' : ''}`}>
+                        {agentMetric ? (
+                          <>
+                            <span>CPU {formatPercent(agentMetric.cpuPct)}</span>
+                            <span>RAM {formatPercent(agentMetric.memPct)}</span>
+                            <span>DISK {formatPercent(agentMetric.diskPct)}</span>
+                          </>
+                        ) : (
+                          <span className="muted">Sin agente</span>
+                        )}
                       </span>
                       <div className="uptime">
                         <div className="uptime-bar">
@@ -1170,6 +1263,7 @@ npm run dev`}</code>
               <ul className="guide-list">
                 <li>Define AGENT_KEY en el backend y reinicia.</li>
                 <li>Obtiene el NodeId en Administracion &gt; Nodos.</li>
+                <li>Alerta de disco: DISK_ALERT_PCT (default 90%).</li>
               </ul>
               <pre className="guide-code">
                 <code>{`# Windows (PowerShell)
@@ -2051,36 +2145,94 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
           </div>
         )}
         {adminTab === 'agents' && (
-          <div className="panel">
-            <div className="panel-header">
-              <div>
-                <h2>Metricas de agentes</h2>
-                <span className="panel-sub">CPU, RAM y disco reportados.</span>
+          <div className="agent-grid">
+            <div className="panel">
+              <div className="panel-header">
+                <div>
+                  <h2>Metricas de agentes</h2>
+                  <span className="panel-sub">CPU, RAM y disco reportados.</span>
+                </div>
+                <span className="panel-badge">Disco alerta {DISK_ALERT_PCT}%</span>
+              </div>
+              <div className="admin-table">
+                <div className="admin-row wide head">
+                  <span>Servicio</span>
+                  <span>CPU</span>
+                  <span>RAM</span>
+                  <span>Disco</span>
+                  <span>Actualizado</span>
+                </div>
+                {agentMetrics.map((metric) => (
+                  <div className="admin-row wide" key={metric.nodeId}>
+                    <div>
+                      <strong>{metric.nodeName}</strong>
+                      <div className="subtext">
+                        {metric.host}:{metric.port}
+                      </div>
+                    </div>
+                    <span className="mono">{formatPercent(metric.cpuPct)}</span>
+                    <span className="mono">{formatPercent(metric.memPct)}</span>
+                    <span className="mono">{formatPercent(metric.diskPct)}</span>
+                    <span className="mono">{formatDate(metric.collectedAt)}</span>
+                  </div>
+                ))}
+                {!agentMetrics.length && <div className="empty">No hay datos de agentes aun.</div>}
               </div>
             </div>
-            <div className="admin-table">
-              <div className="admin-row wide head">
-                <span>Servicio</span>
-                <span>CPU</span>
-                <span>RAM</span>
-                <span>Disco</span>
-                <span>Actualizado</span>
-              </div>
-              {agentMetrics.map((metric) => (
-                <div className="admin-row wide" key={metric.nodeId}>
-                  <div>
-                    <strong>{metric.nodeName}</strong>
-                    <div className="subtext">
-                      {metric.host}:{metric.port}
-                    </div>
-                  </div>
-                  <span className="mono">{formatPercent(metric.cpuPct)}</span>
-                  <span className="mono">{formatPercent(metric.memPct)}</span>
-                  <span className="mono">{formatPercent(metric.diskPct)}</span>
-                  <span className="mono">{formatDate(metric.collectedAt)}</span>
+
+            <div className="panel">
+              <div className="panel-header">
+                <div>
+                  <h2>Historico por servidor</h2>
+                  <span className="panel-sub">Promedios de CPU/RAM/Disk.</span>
                 </div>
-              ))}
-              {!agentMetrics.length && <div className="empty">No hay datos de agentes aun.</div>}
+                <div className="panel-actions">
+                  <select
+                    value={agentSeriesNodeId ?? ''}
+                    onChange={(event) => setAgentSeriesNodeId(Number(event.target.value))}
+                  >
+                    <option value="" disabled>
+                      Seleccionar nodo
+                    </option>
+                    {agentMetrics.map((metric) => (
+                      <option key={metric.nodeId} value={metric.nodeId}>
+                        {metric.nodeName}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="segmented">
+                    {[1, 7, 30].map((days) => (
+                      <button
+                        key={days}
+                        className={`ghost ${agentSeriesDays === days ? 'active' : ''}`}
+                        onClick={() => setAgentSeriesDays(days)}
+                      >
+                        {days === 1 ? '24h' : `${days}d`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="agent-series-grid">
+                <div className="agent-series-card">
+                  <span className="label">CPU</span>
+                  <Sparkline points={agentSeriesCpu} />
+                  <span className="mono">{formatPercent(agentSeriesLatest?.cpuPct ?? null)}</span>
+                </div>
+                <div className="agent-series-card">
+                  <span className="label">RAM</span>
+                  <Sparkline points={agentSeriesMem} />
+                  <span className="mono">{formatPercent(agentSeriesLatest?.memPct ?? null)}</span>
+                </div>
+                <div className={`agent-series-card ${agentDiskHigh ? 'bad' : ''}`}>
+                  <span className="label">DISK</span>
+                  <Sparkline points={agentSeriesDisk} />
+                  <span className="mono">{formatPercent(agentSeriesLatest?.diskPct ?? null)}</span>
+                </div>
+              </div>
+              {!agentSeries.length && (
+                <div className="empty">Sin historico para el nodo seleccionado.</div>
+              )}
             </div>
           </div>
         )}

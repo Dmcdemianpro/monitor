@@ -10,6 +10,7 @@ import type {
   NodeMetric,
   NodeRecord,
   ReportRecipient,
+  AgentSeriesPoint,
   Silence,
   AuthUser
 } from './types';
@@ -327,6 +328,22 @@ export async function deleteReportRecipient(id: number) {
 
 export async function fetchAgentMetrics() {
   return request<{ metrics: AgentMetric[] }>('/api/agent/latest');
+}
+
+export async function fetchAgentSummary() {
+  return request<{ metrics: AgentMetric[] }>('/api/agent/summary');
+}
+
+export async function fetchAgentSeries(params: {
+  nodeId: number;
+  days?: number;
+  bucket?: 'hour' | 'day';
+}) {
+  const qs = new URLSearchParams();
+  qs.set('nodeId', String(params.nodeId));
+  if (params.days) qs.set('days', String(params.days));
+  if (params.bucket) qs.set('bucket', params.bucket);
+  return request<{ series: AgentSeriesPoint[] }>(`/api/agent/series?${qs.toString()}`);
 }
 
 export async function fetchAuditLogs(limit = 100) {

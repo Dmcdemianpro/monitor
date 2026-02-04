@@ -86,6 +86,54 @@ export async function sendAlert(params: {
   return { subject, skipped: false };
 }
 
+function buildDiskSubject(node: NodeConfig, diskPct: number, threshold: number) {
+  return `Moni-D disk alert: ${node.name} ${diskPct.toFixed(1)}%`;
+}
+
+function buildDiskHtml(node: NodeConfig, diskPct: number, threshold: number) {
+  return (
+    '<div style="font-family: Verdana, sans-serif; line-height: 1.5;">' +
+    '<h2 style="margin: 0 0 8px;">Moni-D Disk Alert</h2>' +
+    `<p style="margin: 0 0 10px;">Disk usage reached ${diskPct.toFixed(1)}% (threshold ${threshold}%).</p>` +
+    '<table style="border-collapse: collapse;">' +
+    '<tr><td style="padding: 4px 10px; font-weight: bold;">Node</td>' +
+    `<td style="padding: 4px 10px;">${node.name}</td></tr>` +
+    '<tr><td style="padding: 4px 10px; font-weight: bold;">Host</td>' +
+    `<td style="padding: 4px 10px;">${node.host}:${node.port}</td></tr>` +
+    '<tr><td style="padding: 4px 10px; font-weight: bold;">Time</td>' +
+    `<td style="padding: 4px 10px;">${new Date().toISOString()}</td></tr>` +
+    '<tr><td style="padding: 4px 10px; font-weight: bold;">Disk usage</td>' +
+    `<td style="padding: 4px 10px;">${diskPct.toFixed(1)}%</td></tr>` +
+    '</table>' +
+    '<p style="margin-top: 16px; color: #666;">Moni-D automated monitoring</p>' +
+    '</div>'
+  );
+}
+
+export async function sendDiskAlert(params: {
+  node: NodeConfig;
+  recipients: string[];
+  diskPct: number;
+  threshold: number;
+}) {
+  const { node, recipients, diskPct, threshold } = params;
+  const subject = buildDiskSubject(node, diskPct, threshold);
+  if (!recipients.length) {
+    return { subject, skipped: true };
+  }
+
+  const html = buildDiskHtml(node, diskPct, threshold);
+
+  await transport.sendMail({
+    from: env.SMTP_FROM,
+    to: recipients.join(','),
+    subject,
+    html
+  });
+
+  return { subject, skipped: false };
+}
+
 export async function sendWeeklyReport(params: {
   recipients: string[];
   incidents: Array<{
