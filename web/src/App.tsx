@@ -989,7 +989,7 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'incidents.csv';
+      link.download = 'incidentes.csv';
       link.click();
       URL.revokeObjectURL(url);
     } catch (err: any) {
@@ -1003,7 +1003,7 @@ export default function App() {
       const url = URL.createObjectURL(pdf);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'incidents.pdf';
+      link.download = 'incidentes.pdf';
       link.click();
       URL.revokeObjectURL(url);
     } catch (err: any) {

@@ -20,12 +20,12 @@ const transport = nodemailer.createTransport({
 
 function buildSubject(type: AlertType, node: NodeConfig, level?: number) {
   if (type === 'lost') {
-    return `Moni-D alerta: ${node.name} DOWN`;
+    return `Moni-D - Alerta de servicio: ${node.name} no disponible`;
   }
   if (type === 'escalation') {
-    return `Moni-D escalamiento L${level ?? 1}: ${node.name}`;
+    return `Moni-D - Escalamiento L${level ?? 1}: ${node.name}`;
   }
-  return `Moni-D recuperado: ${node.name} UP`;
+  return `Moni-D - Recuperacion de servicio: ${node.name} operativo`;
 }
 
 function renderRows(rows: Array<[string, string]>) {
@@ -50,7 +50,7 @@ function wrapCard(title: string, statusLabel: string, statusColor: string, bodyH
     `</div>` +
     `<div style="padding:18px 20px;">${bodyHtml}</div>` +
     '</div>' +
-    '<p style="margin:12px auto 0;max-width:640px;color:#64748b;font-size:12px;text-align:center;">Moni-D automated monitoring</p>' +
+    '<p style="margin:12px auto 0;max-width:640px;color:#64748b;font-size:12px;text-align:center;">Moni-D monitoreo automatico</p>' +
     '</div>'
   );
 }
@@ -64,17 +64,17 @@ function buildHtml(
 ) {
   const statusLabel =
     type === 'restored'
-      ? 'UP'
+      ? 'OPERATIVO'
       : type === 'escalation'
         ? `ESC L${level ?? 1}`
-        : 'DOWN';
+        : 'CAIDO';
   const statusColor = type === 'restored' ? '#16a34a' : type === 'escalation' ? '#f59e0b' : '#ef4444';
   const header =
     type === 'lost'
-      ? 'Alerta de servicio'
+      ? 'Se detecto una caida del servicio.'
       : type === 'escalation'
-        ? 'Escalamiento de incidente'
-        : 'Recuperacion de servicio';
+        ? 'Escalamiento del incidente en curso.'
+        : 'Servicio recuperado y operativo.';
   const rows: Array<[string, string]> = [
     ['Servicio', node.name],
     ['Host', `${node.host}:${node.port}`],
@@ -82,7 +82,7 @@ function buildHtml(
     ['Grupo', node.groupName || '-'],
     ['Criticidad', node.criticality || '-'],
     ['Tags', node.tags?.length ? node.tags.join(', ') : '-'],
-    ['Hora', whenIso]
+    ['Fecha/Hora', whenIso]
   ];
   if (error) {
     rows.push(['Error', error]);
@@ -92,7 +92,7 @@ function buildHtml(
     `<p style="margin:0 0 12px;color:#475569;">${header}</p>` +
     `<table style="width:100%;border-collapse:collapse;">${renderRows(rows)}</table>`;
 
-  return wrapCard('Moni-D alerta', statusLabel, statusColor, body);
+  return wrapCard('Moni-D - Alerta de servicio', statusLabel, statusColor, body);
 }
 
 export async function sendAlert(params: {
@@ -136,9 +136,9 @@ function buildMetricSubject(params: {
   const { node, metric, status, value, threshold } = params;
   const label = METRIC_META[metric].label;
   if (status === 'recovered') {
-    return `Moni-D recuperacion ${label}: ${node.name}`;
+    return `Moni-D - Normalizacion de ${label}: ${node.name}`;
   }
-  return `Moni-D alerta ${label}: ${node.name} ${value.toFixed(1)}% (umbral ${threshold}%)`;
+  return `Moni-D - Alerta de ${label}: ${node.name} ${value.toFixed(1)}% (umbral ${threshold}%)`;
 }
 
 function buildMetricHtml(params: {
@@ -150,26 +150,26 @@ function buildMetricHtml(params: {
 }) {
   const { node, metric, status, value, threshold } = params;
   const label = METRIC_META[metric].label;
-  const statusLabel = status === 'recovered' ? 'OK' : 'ALTO';
+  const statusLabel = status === 'recovered' ? 'NORMALIZADO' : 'ALTO';
   const statusColor = status === 'recovered' ? '#16a34a' : '#ef4444';
   const header =
     status === 'recovered'
-      ? `${label} normalizado.`
-      : `${label} alto detectado.`;
+      ? `Uso de ${label} normalizado.`
+      : `Uso de ${label} sobre el umbral.`;
   const rows: Array<[string, string]> = [
     ['Servicio', node.name],
     ['Host', `${node.host}:${node.port}`],
     ['Area', node.area || '-'],
     ['Grupo', node.groupName || '-'],
     ['Criticidad', node.criticality || '-'],
-    [label, `${value.toFixed(1)}%`],
+    [`Uso ${label}`, `${value.toFixed(1)}%`],
     ['Umbral', `${threshold}%`],
-    ['Hora', new Date().toISOString()]
+    ['Fecha/Hora', new Date().toISOString()]
   ];
   const body =
     `<p style="margin:0 0 12px;color:#475569;">${header}</p>` +
     `<table style="width:100%;border-collapse:collapse;">${renderRows(rows)}</table>`;
-  return wrapCard(`Moni-D alerta ${label}`, statusLabel, statusColor, body);
+  return wrapCard(`Moni-D - Alerta de ${label}`, statusLabel, statusColor, body);
 }
 
 export async function sendMetricAlert(params: {
@@ -321,7 +321,7 @@ export async function sendWeeklyReport(params: {
 }
 
 function buildIncidentCsv(incidents: Array<any>) {
-  const header = ['id', 'node', 'start_at', 'end_at', 'duration_sec', 'ack_by', 'owner'];
+  const header = ['id', 'servicio', 'inicio', 'fin', 'duracion_seg', 'ack_por', 'responsable'];
   const rows = incidents.map((incident) => [
     incident.id,
     incident.node_name,

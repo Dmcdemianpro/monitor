@@ -88,7 +88,7 @@ export async function registerIncidentRoutes(app: FastifyInstance) {
   app.get('/api/incidents/export', { preHandler: requireRole(['admin']) }, async (req, reply) => {
     const query = z.object({ days: z.coerce.number().int().min(1).max(365).default(90) }).parse(req.query);
     const incidents = await listIncidentsForReport(query.days);
-    const header = ['id', 'node', 'start_at', 'end_at', 'duration_sec', 'ack_by', 'owner'];
+    const header = ['id', 'servicio', 'inicio', 'fin', 'duracion_seg', 'ack_por', 'responsable'];
     const rows = incidents.map((incident: any) => [
       incident.id,
       incident.node_name,
@@ -109,7 +109,7 @@ export async function registerIncidentRoutes(app: FastifyInstance) {
       )
       .join('\n');
     reply.header('Content-Type', 'text/csv');
-    reply.header('Content-Disposition', 'attachment; filename="incidents.csv"');
+    reply.header('Content-Disposition', 'attachment; filename="incidentes.csv"');
     reply.send(csv);
   });
 
@@ -121,7 +121,7 @@ export async function registerIncidentRoutes(app: FastifyInstance) {
       periodLabel: `Ultimos ${query.days} dias`
     });
     reply.header('Content-Type', 'application/pdf');
-    reply.header('Content-Disposition', 'attachment; filename="incidents.pdf"');
+    reply.header('Content-Disposition', 'attachment; filename="incidentes.pdf"');
     reply.send(pdf);
   });
 }
