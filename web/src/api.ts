@@ -12,7 +12,8 @@ import type {
   ReportRecipient,
   AgentSeriesPoint,
   Silence,
-  AuthUser
+  AuthUser,
+  GroupMetric
 } from './types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
@@ -138,6 +139,13 @@ export async function fetchNodeMetrics(days = 30) {
 
 export async function fetchAreaMetrics(days = 30) {
   return request<{ metrics: AreaMetric[] }>(`/api/metrics/areas?days=${days}`);
+}
+
+export async function fetchGroupMetrics(params: { days?: number; area?: string }) {
+  const qs = new URLSearchParams();
+  if (params.days) qs.set('days', String(params.days));
+  if (params.area) qs.set('area', params.area);
+  return request<{ metrics: GroupMetric[] }>(`/api/metrics/groups?${qs.toString()}`);
 }
 
 export async function fetchLatencySeries(params: {

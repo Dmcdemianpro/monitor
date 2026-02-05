@@ -524,6 +524,15 @@ export type AreaMetric = {
   mtbfSec: number | null;
 };
 
+export type GroupMetric = {
+  groupName: string;
+  uptimePct: number | null;
+  avgLatencyMs: number | null;
+  totalChecks: number;
+  mttrSec: number | null;
+  mtbfSec: number | null;
+};
+
 export type LatencyPoint = {
   bucket: string;
   avgLatencyMs: number | null;
@@ -728,6 +737,80 @@ export async function listAreaMetrics(days: number): Promise<AreaMetric[]> {
 
   return res.rows.map((row) => ({
     area: row.area,
+    uptimePct: row.uptime_pct === null ? null : Number(row.uptime_pct),
+    avgLatencyMs: row.avg_latency_ms === null ? null : Number(row.avg_latency_ms),
+    totalChecks: Number(row.total_checks || 0),
+    mttrSec: row.mttr_sec === null ? null : Number(row.mttr_sec),
+    mtbfSec: row.mtbf_sec === null ? null : Number(row.mtbf_sec)
+  }));
+}
+
+export async function listGroupMetrics(days: number, area?: string): Promise<GroupMetric[]> {
+  const res = await pool.query(
+    `
+    WITH checks_window AS (
+      SELECT n.id,
+             COALESCE(NULLIF(n.group_name, ''), 'Unassigned') AS group_name,
+             COUNT(c.id) AS total_checks,
+             COUNT(c.id) FILTER (WHERE c.status = 'SUCCESS') AS ok_checks,
+             AVG(c.latency_ms) FILTER (WHERE c.latency_ms IS NOT NULL) AS avg_latency_ms
+        FROM nodes n
+        LEFT JOIN checks c
+          ON c.node_id = n.id
+         AND c.checked_at >= now() - ($1 || ' days')::interval
+       WHERE ($2::text IS NULL OR COALESCE(NULLIF(n.area, ''), 'Unassigned') = $2)
+       GROUP BY n.id, group_name
+    ),
+    mttr AS (
+      SELECT n.id AS node_id,
+             COALESCE(NULLIF(n.group_name, ''), 'Unassigned') AS group_name,
+             AVG(EXTRACT(EPOCH FROM (i.end_at - i.start_at))) AS mttr_sec
+        FROM nodes n
+        JOIN incidents i ON i.node_id = n.id
+       WHERE i.end_at IS NOT NULL
+         AND i.start_at >= now() - ($1 || ' days')::interval
+         AND ($2::text IS NULL OR COALESCE(NULLIF(n.area, ''), 'Unassigned') = $2)
+       GROUP BY n.id, group_name
+    ),
+    mtbf AS (
+      SELECT t.node_id,
+             COALESCE(NULLIF(t.group_name, ''), 'Unassigned') AS group_name,
+             AVG(EXTRACT(EPOCH FROM (t.start_at - t.prev_end))) AS mtbf_sec
+        FROM (
+          SELECT n.id AS node_id,
+                 n.group_name,
+                 i.start_at,
+                 i.end_at,
+                 LAG(i.end_at) OVER (PARTITION BY i.node_id ORDER BY i.start_at) AS prev_end
+            FROM nodes n
+            JOIN incidents i ON i.node_id = n.id
+           WHERE i.end_at IS NOT NULL
+             AND i.start_at >= now() - ($1 || ' days')::interval
+             AND ($2::text IS NULL OR COALESCE(NULLIF(n.area, ''), 'Unassigned') = $2)
+        ) t
+       WHERE prev_end IS NOT NULL
+       GROUP BY node_id, group_name
+    )
+    SELECT c.group_name,
+           CASE
+             WHEN SUM(c.total_checks) = 0 THEN NULL
+             ELSE ROUND(100.0 * SUM(c.ok_checks) / SUM(c.total_checks), 2)
+           END AS uptime_pct,
+           AVG(c.avg_latency_ms) AS avg_latency_ms,
+           SUM(c.total_checks) AS total_checks,
+           AVG(mttr.mttr_sec) AS mttr_sec,
+           AVG(mtbf.mtbf_sec) AS mtbf_sec
+      FROM checks_window c
+      LEFT JOIN mttr ON mttr.node_id = c.id
+      LEFT JOIN mtbf ON mtbf.node_id = c.id
+     GROUP BY c.group_name
+     ORDER BY c.group_name
+    `,
+    [days, area ?? null]
+  );
+
+  return res.rows.map((row) => ({
+    groupName: row.group_name,
     uptimePct: row.uptime_pct === null ? null : Number(row.uptime_pct),
     avgLatencyMs: row.avg_latency_ms === null ? null : Number(row.avg_latency_ms),
     totalChecks: Number(row.total_checks || 0),

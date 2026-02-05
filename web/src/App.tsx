@@ -19,6 +19,7 @@ import {
   fetchAuditLogs,
   fetchAuthUser,
   fetchAreaMetrics,
+  fetchGroupMetrics,
   fetchIncidents,
   fetchIncidentNotes,
   fetchLatencySeries,
@@ -51,7 +52,8 @@ import type {
   ReportRecipient,
   Silence,
   AuthUser,
-  AgentSeriesPoint
+  AgentSeriesPoint,
+  GroupMetric
 } from './types';
 
 const DEFAULT_CPU_ALERT_PCT = Number.parseInt(import.meta.env.VITE_CPU_ALERT_PCT || '85', 10) || 85;
@@ -103,6 +105,11 @@ type StatusInfo = {
 };
 
 const CRITICALITY_OPTIONS = ['HIGH', 'MEDIUM', 'LOW'] as const;
+const CRITICALITY_LABELS: Record<string, string> = {
+  HIGH: 'ALTA',
+  MEDIUM: 'MEDIA',
+  LOW: 'BAJA'
+};
 const METRICS_DAYS = 30;
 const LATENCY_DAYS = 7;
 
@@ -157,6 +164,10 @@ function formatMs(value: number | null | undefined) {
 
 function normalizeLabel(value: string | null | undefined) {
   return value && value.trim().length ? value.trim() : 'Unassigned';
+}
+
+function getCriticalityLabel(value: string) {
+  return CRITICALITY_LABELS[value] || value;
 }
 
 function getThresholds(node?: Pick<
@@ -227,6 +238,7 @@ export default function App() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [nodeMetrics, setNodeMetrics] = useState<NodeMetric[]>([]);
   const [areaMetrics, setAreaMetrics] = useState<AreaMetric[]>([]);
+  const [groupMetrics, setGroupMetrics] = useState<GroupMetric[]>([]);
   const [latencySeries, setLatencySeries] = useState<LatencyPoint[]>([]);
   const [alertChannels, setAlertChannels] = useState<AlertChannel[]>([]);
   const [silences, setSilences] = useState<Silence[]>([]);
@@ -281,6 +293,8 @@ export default function App() {
   const [areaFilter, setAreaFilter] = useState('all');
   const [groupFilter, setGroupFilter] = useState('all');
   const [criticalityFilter, setCriticalityFilter] = useState('all');
+  const [tagFilter, setTagFilter] = useState('all');
+  const [metricView, setMetricView] = useState<'areas' | 'groups'>('areas');
   const [state, setState] = useState<LoadState>({
     loading: true,
     error: null,
@@ -319,6 +333,12 @@ export default function App() {
     return Array.from(new Set(values)).sort();
   }, [nodes]);
 
+  const tagOptions = useMemo(() => {
+    const values = nodes.flatMap((node) => node.tags || []);
+    return Array.from(new Set(values.map((tag) => tag.trim()).filter((tag) => tag.length)))
+      .sort((a, b) => a.localeCompare(b));
+  }, [nodes]);
+
   const policyOptions = useMemo(() => {
     return escalationPolicies;
   }, [escalationPolicies]);
@@ -339,6 +359,9 @@ export default function App() {
         return false;
       }
       if (criticalityFilter !== 'all' && node.criticality !== criticalityFilter) {
+        return false;
+      }
+      if (tagFilter !== 'all' && !(node.tags || []).includes(tagFilter)) {
         return false;
       }
       if (!term) {
@@ -378,6 +401,31 @@ export default function App() {
   const areaMetricsSorted = useMemo(() => {
     return [...areaMetrics].sort((a, b) => a.area.localeCompare(b.area));
   }, [areaMetrics]);
+
+  const groupMetricsSorted = useMemo(() => {
+    return [...groupMetrics].sort((a, b) => a.groupName.localeCompare(b.groupName));
+  }, [groupMetrics]);
+
+  const areaCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const node of nodes) {
+      const key = normalizeLabel(node.area);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return counts;
+  }, [nodes]);
+
+  const groupCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const node of nodes) {
+      if (areaFilter !== 'all' && normalizeLabel(node.area) !== areaFilter) {
+        continue;
+      }
+      const key = normalizeLabel(node.groupName);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return counts;
+  }, [nodes, areaFilter]);
 
   const latencyPoints = useMemo(() => {
     return latencySeries
@@ -446,12 +494,13 @@ export default function App() {
     try {
       const areaParam = areaFilter === 'all' ? undefined : areaFilter;
       const groupParam = groupFilter === 'all' ? undefined : groupFilter;
-      const [nodesRes, incidentsRes, nodeMetricsRes, areaMetricsRes, latencyRes, agentSummaryRes] =
+      const [nodesRes, incidentsRes, nodeMetricsRes, areaMetricsRes, groupMetricsRes, latencyRes, agentSummaryRes] =
         await Promise.all([
           fetchNodes(),
           fetchIncidents(90),
           fetchNodeMetrics(METRICS_DAYS),
           fetchAreaMetrics(METRICS_DAYS),
+          fetchGroupMetrics({ days: METRICS_DAYS, area: areaParam }),
           fetchLatencySeries({ days: LATENCY_DAYS, bucket: 'hour', area: areaParam, groupName: groupParam }),
           fetchAgentSummary()
         ]);
@@ -459,6 +508,7 @@ export default function App() {
       setIncidents(incidentsRes.incidents);
       setNodeMetrics(nodeMetricsRes.metrics);
       setAreaMetrics(areaMetricsRes.metrics);
+      setGroupMetrics(groupMetricsRes.metrics);
       setLatencySeries(latencyRes.series);
       setAgentSummary(agentSummaryRes.metrics);
       setState({ loading: false, error: null, lastUpdated: new Date().toISOString() });
@@ -1074,6 +1124,17 @@ export default function App() {
                 </select>
               </div>
               <div className="filter-group">
+                <span>Tag</span>
+                <select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
+                  <option value="all">Todas</option>
+                  {tagOptions.map((tag) => (
+                    <option key={tag} value={tag}>
+                      {tag}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="filter-group">
                 <span>Criticidad</span>
                 <select
                   value={criticalityFilter}
@@ -1082,7 +1143,7 @@ export default function App() {
                   <option value="all">Todas</option>
                   {CRITICALITY_OPTIONS.map((crit) => (
                     <option key={crit} value={crit}>
-                      {crit}
+                      {getCriticalityLabel(crit)}
                     </option>
                   ))}
                 </select>
@@ -1106,6 +1167,9 @@ export default function App() {
                   const agentMetric = agentSummaryMap.get(node.id);
                   const area = normalizeLabel(node.area);
                   const criticality = node.criticality || 'MEDIUM';
+                  const tags = node.tags || [];
+                  const shownTags = tags.slice(0, 3);
+                  const extraTags = tags.length - shownTags.length;
                   const uptimePct = metrics?.uptimePct ?? null;
                   const avgLatency = metrics?.avgLatencyMs ?? null;
                   const thresholds = getThresholds(node);
@@ -1126,8 +1190,24 @@ export default function App() {
                     <div className={`service-row ${status.tone}`} key={node.id}>
                       <span className={`status-pill ${status.tone}`}>{status.label}</span>
                       <div className="service-name">
-                        <span>{node.name}</span>
-                        <span className={`crit-badge ${criticality.toLowerCase()}`}>{criticality}</span>
+                        <div className="service-title">
+                          <span>{node.name}</span>
+                          <span className={`crit-badge ${criticality.toLowerCase()}`}>
+                            {getCriticalityLabel(criticality)}
+                          </span>
+                        </div>
+                        {shownTags.length ? (
+                          <div className="tag-row">
+                            {shownTags.map((tag) => (
+                              <span key={tag} className="tag-chip">
+                                {tag}
+                              </span>
+                            ))}
+                            {extraTags > 0 ? (
+                              <span className="tag-chip">+{extraTags}</span>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
                       <span className="service-area">{area}</span>
                       <span className="service-host mono">
@@ -1174,42 +1254,93 @@ export default function App() {
             <div className="panel metrics-panel">
               <div className="panel-header">
                 <div>
-                  <h2>Metricas por area</h2>
+                  <h2>Metricas por area y grupo</h2>
                   <span className="panel-sub">Uptime y latencia promedio</span>
                 </div>
-                <span className="panel-badge">{METRICS_DAYS}d</span>
+                <div className="panel-actions">
+                  <div className="segmented">
+                    <button
+                      className={`ghost ${metricView === 'areas' ? 'active' : ''}`}
+                      onClick={() => setMetricView('areas')}
+                    >
+                      Areas
+                    </button>
+                    <button
+                      className={`ghost ${metricView === 'groups' ? 'active' : ''}`}
+                      onClick={() => setMetricView('groups')}
+                    >
+                      Grupos
+                    </button>
+                  </div>
+                  <span className="panel-badge">{METRICS_DAYS}d</span>
+                </div>
               </div>
               <div className="panel-body scroll">
-                <div className="area-list">
-                  {areaMetricsSorted.map((metric) => {
-                    const uptime = metric.uptimePct ?? 0;
-                    const latency = metric.avgLatencyMs ?? null;
-                    const isActive = areaFilter !== 'all' && metric.area === areaFilter;
-                    return (
-                      <button
-                        key={metric.area}
-                        className={`area-row ${isActive ? 'active' : ''}`}
-                        onClick={() => setAreaFilter(metric.area)}
-                      >
-                        <div>
-                          <div className="area-name">{metric.area}</div>
-                          <div className="area-meta">
-                            Lat {formatMs(latency)} ? MTTR {formatDuration(metric.mttrSec ?? 0)}
+                {metricView === 'areas' ? (
+                  <div className="area-list">
+                    {areaMetricsSorted.map((metric) => {
+                      const uptime = metric.uptimePct ?? 0;
+                      const latency = metric.avgLatencyMs ?? null;
+                      const isActive = areaFilter !== 'all' && metric.area === areaFilter;
+                      const count = areaCounts.get(metric.area) || 0;
+                      return (
+                        <button
+                          key={metric.area}
+                          className={`area-row ${isActive ? 'active' : ''}`}
+                          onClick={() => setAreaFilter(metric.area)}
+                        >
+                          <div>
+                            <div className="area-name">{metric.area}</div>
+                            <div className="area-meta">
+                              {count} nodos ? Lat {formatMs(latency)} ? MTTR {formatDuration(metric.mttrSec ?? 0)}
+                            </div>
                           </div>
-                        </div>
-                        <div className="uptime mini">
-                          <div className="uptime-bar">
-                            <span style={{ width: `${uptime}%` }}></span>
+                          <div className="uptime mini">
+                            <div className="uptime-bar">
+                              <span style={{ width: `${uptime}%` }}></span>
+                            </div>
+                            <span className="uptime-label">{formatPercent(metric.uptimePct)}</span>
                           </div>
-                          <span className="uptime-label">{formatPercent(metric.uptimePct)}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                  {!areaMetricsSorted.length && (
-                    <div className="empty">Sin metricas por area aun.</div>
-                  )}
-                </div>
+                        </button>
+                      );
+                    })}
+                    {!areaMetricsSorted.length && (
+                      <div className="empty">Sin metricas por area aun.</div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="area-list">
+                    {groupMetricsSorted.map((metric) => {
+                      const uptime = metric.uptimePct ?? 0;
+                      const latency = metric.avgLatencyMs ?? null;
+                      const isActive = groupFilter !== 'all' && metric.groupName === groupFilter;
+                      const count = groupCounts.get(metric.groupName) || 0;
+                      return (
+                        <button
+                          key={metric.groupName}
+                          className={`area-row ${isActive ? 'active' : ''}`}
+                          onClick={() => setGroupFilter(metric.groupName)}
+                        >
+                          <div>
+                            <div className="area-name">{metric.groupName}</div>
+                            <div className="area-meta">
+                              {count} nodos ? Lat {formatMs(latency)} ? MTTR {formatDuration(metric.mttrSec ?? 0)}
+                            </div>
+                          </div>
+                          <div className="uptime mini">
+                            <div className="uptime-bar">
+                              <span style={{ width: `${uptime}%` }}></span>
+                            </div>
+                            <span className="uptime-label">{formatPercent(metric.uptimePct)}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                    {!groupMetricsSorted.length && (
+                      <div className="empty">Sin metricas por grupo aun.</div>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="panel-footer">
                 <div>
@@ -1367,6 +1498,7 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
               <h3>Buenas practicas</h3>
               <ul className="guide-list">
                 <li>Define areas y grupos para filtrar rapido.</li>
+                <li>Agrega tags para clasificar por tecnologia o servicio.</li>
                 <li>Usa criticidad Alta para servicios clinicos.</li>
                 <li>Activa ventanas de mantenimiento.</li>
                 <li>Para acceso por IP: HOST=0.0.0.0 y VITE_API_URL/CORS_ORIGIN con IP.</li>
@@ -1599,7 +1731,7 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
                     >
                       {CRITICALITY_OPTIONS.map((crit) => (
                         <option key={crit} value={crit}>
-                          {crit}
+                          {getCriticalityLabel(crit)}
                         </option>
                       ))}
                     </select>

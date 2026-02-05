@@ -143,6 +143,15 @@ export type AreaMetric = {
   mtbfSec: number | null;
 };
 
+export type GroupMetric = {
+  groupName: string;
+  uptimePct: number | null;
+  avgLatencyMs: number | null;
+  totalChecks: number;
+  mttrSec: number | null;
+  mtbfSec: number | null;
+};
+
 export type LatencyPoint = {
   bucket: string;
   avgLatencyMs: number | null;

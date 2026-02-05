@@ -64,6 +64,10 @@ VIEWER_PASS=view_pass
 - El historial se retiene segun `RETENTION_DAYS` (default 90 dias).
 - Los incidentes abren en la primera falla y cierran al recuperar.
 
+## Organizacion
+- Usa Area, Grupo, Criticidad y Tags para ordenar y filtrar.
+- El dashboard incluye vista por area/grupo y filtro por tag.
+
 ## Alertas
 - Email usa credenciales SMTP.
 - Canales extra (Webhook/Teams/Slack/SMS) se configuran en Admin > Alertas.

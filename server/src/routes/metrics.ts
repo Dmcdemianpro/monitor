@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { listAreaMetrics, listLatencySeries, listNodeMetrics } from '../store';
+import { listAreaMetrics, listGroupMetrics, listLatencySeries, listNodeMetrics } from '../store';
 
 export async function registerMetricsRoutes(app: FastifyInstance) {
   app.get('/api/metrics/nodes', async (req) => {
@@ -12,6 +12,20 @@ export async function registerMetricsRoutes(app: FastifyInstance) {
   app.get('/api/metrics/areas', async (req) => {
     const query = z.object({ days: z.coerce.number().int().min(1).max(365).default(30) }).parse(req.query);
     const metrics = await listAreaMetrics(query.days);
+    return { metrics };
+  });
+
+  app.get('/api/metrics/groups', async (req) => {
+    const query = z
+      .object({
+        days: z.coerce.number().int().min(1).max(365).default(30),
+        area: z.string().optional()
+      })
+      .parse(req.query);
+    const metrics = await listGroupMetrics(
+      query.days,
+      query.area && query.area.length ? query.area : undefined
+    );
     return { metrics };
   });
 
