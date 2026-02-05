@@ -360,6 +360,21 @@ function formatDurationSec(seconds: number | null | undefined) {
   return `${hours}h ${remMin}m`;
 }
 
+function formatDateTime(value: any) {
+  if (!value) {
+    return '-';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+  const pad = (num: number) => String(num).padStart(2, '0');
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    ` ${pad(date.getHours())}:${pad(date.getMinutes())}`
+  );
+}
+
 export async function buildIncidentPdf(
   incidents: Array<any>,
   options?: { title?: string; periodLabel?: string; generatedAt?: string }
@@ -383,7 +398,7 @@ export async function buildIncidentPdf(
     doc.fontSize(18).font('Helvetica-Bold').text(title);
     doc.moveDown(0.4);
     doc.fontSize(10).font('Helvetica').text(`Periodo: ${periodLabel}`);
-    doc.text(`Generado: ${generatedAt}`);
+    doc.text(`Generado: ${formatDateTime(generatedAt)}`);
     doc.moveDown(0.6);
     doc.font('Helvetica-Bold').text('Resumen');
     doc.font('Helvetica');
@@ -394,33 +409,38 @@ export async function buildIncidentPdf(
     doc.text(`Sin ack: ${unackedCount}`);
     doc.moveDown();
 
-    const columns = [
-      { label: 'Servicio', width: 150 },
-      { label: 'Inicio', width: 110 },
-      { label: 'Fin', width: 110 },
-      { label: 'Estado', width: 60 },
-      { label: 'Duracion', width: 70 },
-      { label: 'Responsable', width: 70 }
+    const contentWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const columnDefs = [
+      { label: 'Servicio', ratio: 0.28 },
+      { label: 'Inicio', ratio: 0.2 },
+      { label: 'Fin', ratio: 0.2 },
+      { label: 'Estado', ratio: 0.12 },
+      { label: 'Duracion', ratio: 0.1 },
+      { label: 'Responsable', ratio: 0.1 }
     ];
+    const columns = columnDefs.map((col) => ({
+      label: col.label,
+      width: Math.floor(contentWidth * col.ratio)
+    }));
 
     const truncate = (value: string, max: number) => {
       if (value.length <= max) return value;
-      return `${value.slice(0, max - 3)}...`;
+      return `${value.slice(0, Math.max(0, max - 3))}...`;
     };
 
     const drawRow = (values: string[], bold = false) => {
       const y = doc.y;
       let x = doc.page.margins.left;
-      if (bold) {
-        doc.font('Helvetica-Bold');
-      } else {
-        doc.font('Helvetica');
-      }
+      const rowHeight = 16;
+      doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9);
       values.forEach((value, idx) => {
-        doc.text(truncate(value, 24), x, y, { width: columns[idx].width });
-        x += columns[idx].width;
+        const width = columns[idx].width;
+        const maxChars = Math.max(8, Math.floor(width / 5));
+        const text = truncate(value, maxChars);
+        doc.text(text, x, y, { width, lineBreak: false });
+        x += width;
       });
-      doc.moveDown(0.8);
+      doc.y = y + rowHeight;
     };
 
     drawRow(columns.map((col) => col.label), true);
@@ -433,8 +453,8 @@ export async function buildIncidentPdf(
       const status = incident.end_at ? 'CERRADO' : 'ABIERTO';
       drawRow([
         String(incident.node_name || ''),
-        String(incident.start_at || ''),
-        String(incident.end_at || '-'),
+        formatDateTime(incident.start_at),
+        formatDateTime(incident.end_at || null),
         status,
         formatDurationSec(incident.duration_sec),
         String(incident.owner || '-')
