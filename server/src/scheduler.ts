@@ -149,27 +149,31 @@ async function dispatchAlert(params: {
   if (recipients.length) {
     const exists = await hasAlertEvent({ incidentId, type, level, channelId: null });
     if (!exists) {
-      const { subject } = await sendAlert({
-        type,
-        node,
-        recipients,
-        error: error ?? undefined,
-        level: level ?? undefined
-      });
-      await createNotification({
-        nodeId: node.id,
-        type,
-        recipients,
-        subject
-      });
-      await recordAlertEvent({
-        incidentId,
-        nodeId: node.id,
-        type,
-        level,
-        channelId: null,
-        recipients: recipients.join(',')
-      });
+      try {
+        const { subject } = await sendAlert({
+          type,
+          node,
+          recipients,
+          error: error ?? undefined,
+          level: level ?? undefined
+        });
+        await createNotification({
+          nodeId: node.id,
+          type,
+          recipients,
+          subject
+        });
+        await recordAlertEvent({
+          incidentId,
+          nodeId: node.id,
+          type,
+          level,
+          channelId: null,
+          recipients: recipients.join(',')
+        });
+      } catch (err: any) {
+        logger.error('email alert failed', node.name, err?.message || err);
+      }
     }
   }
 

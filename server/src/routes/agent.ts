@@ -89,6 +89,9 @@ async function handleDiskAlert(params: { nodeId: number; diskPct: number }) {
   if (!node) {
     return;
   }
+  if (!node.agentEnabled) {
+    return;
+  }
 
   const threshold = env.DISK_ALERT_PCT;
   const isHigh = diskPct >= threshold;
@@ -121,25 +124,36 @@ async function handleDiskAlert(params: { nodeId: number; diskPct: number }) {
   const payload = buildDiskPayload({ node, diskPct, threshold });
   const enabledChannels = channels.filter((channel) => channel.enabled);
 
-  const { subject } = await sendDiskAlert({
-    node,
-    recipients,
-    diskPct,
-    threshold
-  });
-
+  let emailSent = false;
+  let subject = '';
   if (recipients.length) {
-    await createNotification({
-      nodeId: node.id,
-      type: 'disk_high',
-      recipients,
-      subject
-    });
+    try {
+      const res = await sendDiskAlert({
+        node,
+        recipients,
+        diskPct,
+        threshold
+      });
+      subject = res.subject;
+      emailSent = !res.skipped;
+      if (emailSent) {
+        await createNotification({
+          nodeId: node.id,
+          type: 'disk_high',
+          recipients,
+          subject
+        });
+      }
+    } catch (err: any) {
+      console.error('disk email alert failed', node.name, err?.message || err);
+    }
   }
 
+  let channelSent = false;
   for (const channel of enabledChannels) {
     try {
       await sendChannelAlert(channel, payload);
+      channelSent = true;
       await recordAlertEvent({
         incidentId: null,
         nodeId: node.id,
@@ -153,7 +167,7 @@ async function handleDiskAlert(params: { nodeId: number; diskPct: number }) {
     }
   }
 
-  if (recipients.length || enabledChannels.length) {
+  if (emailSent || channelSent) {
     await recordAlertEvent({
       incidentId: null,
       nodeId: node.id,

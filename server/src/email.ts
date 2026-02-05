@@ -18,12 +18,39 @@ const transport = nodemailer.createTransport({
 
 function buildSubject(type: AlertType, node: NodeConfig, level?: number) {
   if (type === 'lost') {
-    return `Moni-D alert: ${node.name} down`;
+    return `Moni-D alerta: ${node.name} DOWN`;
   }
   if (type === 'escalation') {
-    return `Moni-D escalation L${level ?? 1}: ${node.name}`;
+    return `Moni-D escalamiento L${level ?? 1}: ${node.name}`;
   }
-  return `Moni-D recovery: ${node.name} up`;
+  return `Moni-D recuperado: ${node.name} UP`;
+}
+
+function renderRows(rows: Array<[string, string]>) {
+  return rows
+    .map(
+      ([label, value]) =>
+        '<tr>' +
+        `<td style="padding: 6px 10px; font-weight: 600; color: #0f172a;">${label}</td>` +
+        `<td style="padding: 6px 10px; color: #0f172a;">${value}</td>` +
+        '</tr>'
+    )
+    .join('');
+}
+
+function wrapCard(title: string, statusLabel: string, statusColor: string, bodyHtml: string) {
+  return (
+    '<div style="background:#f8fafc;padding:24px;font-family:Verdana,sans-serif;">' +
+    '<div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">' +
+    `<div style="padding:16px 20px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;">` +
+    `<div style="font-size:16px;font-weight:700;color:#0f172a;">${title}</div>` +
+    `<div style="padding:6px 10px;border-radius:999px;background:${statusColor};color:#ffffff;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;">${statusLabel}</div>` +
+    `</div>` +
+    `<div style="padding:18px 20px;">${bodyHtml}</div>` +
+    '</div>' +
+    '<p style="margin:12px auto 0;max-width:640px;color:#64748b;font-size:12px;text-align:center;">Moni-D automated monitoring</p>' +
+    '</div>'
+  );
 }
 
 function buildHtml(
@@ -33,32 +60,37 @@ function buildHtml(
   error?: string,
   level?: number
 ) {
-  const statusLine = type === 'restored' ? 'Status: UP' : 'Status: DOWN';
-  const note =
-    type === 'lost'
-      ? 'Connection failed'
+  const statusLabel =
+    type === 'restored'
+      ? 'UP'
       : type === 'escalation'
-        ? `Escalation level ${level ?? 1}`
-        : 'Connection restored';
+        ? `ESC L${level ?? 1}`
+        : 'DOWN';
+  const statusColor = type === 'restored' ? '#16a34a' : type === 'escalation' ? '#f59e0b' : '#ef4444';
+  const header =
+    type === 'lost'
+      ? 'Alerta de servicio'
+      : type === 'escalation'
+        ? 'Escalamiento de incidente'
+        : 'Recuperacion de servicio';
+  const rows: Array<[string, string]> = [
+    ['Servicio', node.name],
+    ['Host', `${node.host}:${node.port}`],
+    ['Area', node.area || '-'],
+    ['Grupo', node.groupName || '-'],
+    ['Criticidad', node.criticality || '-'],
+    ['Tags', node.tags?.length ? node.tags.join(', ') : '-'],
+    ['Hora', whenIso]
+  ];
+  if (error) {
+    rows.push(['Error', error]);
+  }
 
-  return (
-    '<div style="font-family: Verdana, sans-serif; line-height: 1.5;">' +
-    '<h2 style="margin: 0 0 8px;">Moni-D Notification</h2>' +
-    `<p style="margin: 0 0 10px;">${note}</p>` +
-    '<table style="border-collapse: collapse;">' +
-    '<tr><td style="padding: 4px 10px; font-weight: bold;">Node</td>' +
-    `<td style="padding: 4px 10px;">${node.name}</td></tr>` +
-    '<tr><td style="padding: 4px 10px; font-weight: bold;">Host</td>' +
-    `<td style="padding: 4px 10px;">${node.host}:${node.port}</td></tr>` +
-    '<tr><td style="padding: 4px 10px; font-weight: bold;">Time</td>' +
-    `<td style="padding: 4px 10px;">${whenIso}</td></tr>` +
-    '<tr><td style="padding: 4px 10px; font-weight: bold;">Status</td>' +
-    `<td style="padding: 4px 10px;">${statusLine}</td></tr>` +
-    (error ? `<tr><td style="padding: 4px 10px; font-weight: bold;">Error</td><td style="padding: 4px 10px;">${error}</td></tr>` : '') +
-    '</table>' +
-    '<p style="margin-top: 16px; color: #666;">Moni-D automated monitoring</p>' +
-    '</div>'
-  );
+  const body =
+    `<p style="margin:0 0 12px;color:#475569;">${header}</p>` +
+    `<table style="width:100%;border-collapse:collapse;">${renderRows(rows)}</table>`;
+
+  return wrapCard('Moni-D alerta', statusLabel, statusColor, body);
 }
 
 export async function sendAlert(params: {
@@ -87,27 +119,24 @@ export async function sendAlert(params: {
 }
 
 function buildDiskSubject(node: NodeConfig, diskPct: number, threshold: number) {
-  return `Moni-D disk alert: ${node.name} ${diskPct.toFixed(1)}%`;
+  return `Moni-D alerta disco: ${node.name} ${diskPct.toFixed(1)}%`;
 }
 
 function buildDiskHtml(node: NodeConfig, diskPct: number, threshold: number) {
-  return (
-    '<div style="font-family: Verdana, sans-serif; line-height: 1.5;">' +
-    '<h2 style="margin: 0 0 8px;">Moni-D Disk Alert</h2>' +
-    `<p style="margin: 0 0 10px;">Disk usage reached ${diskPct.toFixed(1)}% (threshold ${threshold}%).</p>` +
-    '<table style="border-collapse: collapse;">' +
-    '<tr><td style="padding: 4px 10px; font-weight: bold;">Node</td>' +
-    `<td style="padding: 4px 10px;">${node.name}</td></tr>` +
-    '<tr><td style="padding: 4px 10px; font-weight: bold;">Host</td>' +
-    `<td style="padding: 4px 10px;">${node.host}:${node.port}</td></tr>` +
-    '<tr><td style="padding: 4px 10px; font-weight: bold;">Time</td>' +
-    `<td style="padding: 4px 10px;">${new Date().toISOString()}</td></tr>` +
-    '<tr><td style="padding: 4px 10px; font-weight: bold;">Disk usage</td>' +
-    `<td style="padding: 4px 10px;">${diskPct.toFixed(1)}%</td></tr>` +
-    '</table>' +
-    '<p style="margin-top: 16px; color: #666;">Moni-D automated monitoring</p>' +
-    '</div>'
-  );
+  const rows: Array<[string, string]> = [
+    ['Servicio', node.name],
+    ['Host', `${node.host}:${node.port}`],
+    ['Area', node.area || '-'],
+    ['Grupo', node.groupName || '-'],
+    ['Criticidad', node.criticality || '-'],
+    ['Uso de disco', `${diskPct.toFixed(1)}%`],
+    ['Umbral', `${threshold}%`],
+    ['Hora', new Date().toISOString()]
+  ];
+  const body =
+    '<p style="margin:0 0 12px;color:#475569;">Uso de disco alto detectado.</p>' +
+    `<table style="width:100%;border-collapse:collapse;">${renderRows(rows)}</table>`;
+  return wrapCard('Moni-D alerta disco', `${diskPct.toFixed(1)}%`, '#ef4444', body);
 }
 
 export async function sendDiskAlert(params: {

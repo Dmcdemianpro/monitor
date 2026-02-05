@@ -69,6 +69,7 @@ VIEWER_PASS=view_pass
 - Canales extra (Webhook/Teams/Slack/SMS) se configuran en Admin > Alertas.
 - Silencios (ventanas de mantenimiento) por nodo/area/grupo/tag/criticidad.
 - Escalamiento envia alertas adicionales despues de un delay.
+- Alerta de disco por agente cuando supera `DISK_ALERT_PCT` (default 90%).
 
 ## Reporte semanal
 Configura destinatarios en Admin > Reportes. El servidor envia el resumen semanal cuando:
@@ -91,6 +92,7 @@ DISK_ALERT_PCT=90
 ```
 Scripts disponibles en `C:\moni-D\agent` (ver `C:\moni-D\agent\README.md`).
 Paso a paso para instalar agentes: `C:\moni-D\agent\README.md`.
+Opcional UI: `VITE_DISK_ALERT_PCT=90` para mostrar el umbral en el dashboard.
 
 ## API (resumen)
 - `GET /api/nodes`

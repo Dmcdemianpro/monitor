@@ -94,7 +94,7 @@ type StatusInfo = {
 const CRITICALITY_OPTIONS = ['HIGH', 'MEDIUM', 'LOW'] as const;
 const METRICS_DAYS = 30;
 const LATENCY_DAYS = 7;
-const DISK_ALERT_PCT = 90;
+const DISK_ALERT_PCT = Number.parseInt(import.meta.env.VITE_DISK_ALERT_PCT || '90', 10) || 90;
 
 function parseList(input: string) {
   return input
