@@ -233,19 +233,31 @@ export async function sendWeeklyReport(params: {
   }
 
   const csv = buildIncidentCsv(incidents);
-  const pdf = await buildIncidentPdf(incidents);
+  const pdf = await buildIncidentPdf(incidents, {
+    title: 'Informe semanal de incidentes',
+    periodLabel: 'Ultimos 7 dias'
+  });
+
+  const total = incidents.length;
+  const openCount = incidents.filter((incident) => !incident.end_at).length;
+  const closedCount = total - openCount;
+  const ackedCount = incidents.filter((incident) => incident.ack_by).length;
+  const unackedCount = total - ackedCount;
 
   const rows = incidents
     .map((incident) => {
-      const status = incident.end_at ? 'CLOSED' : 'OPEN';
+      const status = incident.end_at ? 'CERRADO' : 'ABIERTO';
       return (
         '<tr>' +
         `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${incident.node_name}</td>` +
         `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${incident.start_at}</td>` +
         `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${incident.end_at || '-'}</td>` +
         `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${status}</td>` +
-        `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${incident.duration_sec}s</td>` +
+        `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${formatDurationSec(
+          incident.duration_sec
+        )}</td>` +
         `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${incident.owner || '-'}</td>` +
+        `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${incident.ack_by || '-'}</td>` +
         '</tr>'
       );
     })
@@ -253,35 +265,52 @@ export async function sendWeeklyReport(params: {
 
   const html =
     '<div style="font-family: Verdana, sans-serif; line-height: 1.5;">' +
-    '<h2 style="margin: 0 0 8px;">Moni-D Weekly Report</h2>' +
-    `<p style="margin: 0 0 12px;">Incidents in the last 7 days: ${incidents.length}</p>` +
+    '<h2 style="margin: 0 0 8px;">Moni-D - Informe semanal de incidentes</h2>' +
+    '<p style="margin: 0 0 12px;">Periodo: Ultimos 7 dias</p>' +
+    '<table style="border-collapse: collapse; width: 100%; font-size: 12px; margin-bottom: 12px;">' +
+    '<thead><tr>' +
+    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Total</th>' +
+    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Abiertos</th>' +
+    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Cerrados</th>' +
+    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Ack</th>' +
+    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Sin ack</th>' +
+    '</tr></thead>' +
+    `<tbody><tr>` +
+    `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${total}</td>` +
+    `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${openCount}</td>` +
+    `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${closedCount}</td>` +
+    `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${ackedCount}</td>` +
+    `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${unackedCount}</td>` +
+    `</tr></tbody>` +
+    '</table>' +
     '<table style="border-collapse: collapse; width: 100%; font-size: 12px;">' +
     '<thead><tr>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Node</th>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Start</th>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">End</th>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Status</th>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Duration</th>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Owner</th>' +
+    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Servicio</th>' +
+    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Inicio</th>' +
+    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Fin</th>' +
+    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Estado</th>' +
+    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Duracion</th>' +
+    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Responsable</th>' +
+    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Ack</th>' +
     '</tr></thead>' +
-    `<tbody>${rows || '<tr><td colspan="6" style="padding:6px 10px;">No incidents</td></tr>'}</tbody>` +
+    `<tbody>${rows || '<tr><td colspan="7" style="padding:6px 10px;">Sin incidentes</td></tr>'}</tbody>` +
     '</table>' +
-    '<p style="margin-top: 16px; color: #666;">Moni-D automated report</p>' +
+    '<p style="margin-top: 16px; color: #666;">Reporte generado automaticamente por Moni-D.</p>' +
     '</div>';
 
   await transport.sendMail({
     from: env.SMTP_FROM,
     to: recipients.join(','),
-    subject: 'Moni-D weekly report',
+    subject: 'Moni-D - Informe semanal de incidentes',
     html,
     attachments: [
       {
-        filename: 'moni-d-weekly-report.pdf',
+        filename: 'moni-d-informe-semanal.pdf',
         content: pdf,
         contentType: 'application/pdf'
       },
       {
-        filename: 'moni-d-weekly-report.csv',
+        filename: 'moni-d-informe-semanal.csv',
         content: csv,
         contentType: 'text/csv'
       }
@@ -315,27 +344,63 @@ function buildIncidentCsv(incidents: Array<any>) {
     .join('\n');
 }
 
-export async function buildIncidentPdf(incidents: Array<any>): Promise<Buffer> {
+function formatDurationSec(seconds: number | null | undefined) {
+  if (!seconds || seconds <= 0) {
+    return '-';
+  }
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remMin = minutes % 60;
+  return `${hours}h ${remMin}m`;
+}
+
+export async function buildIncidentPdf(
+  incidents: Array<any>,
+  options?: { title?: string; periodLabel?: string; generatedAt?: string }
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
+    const title = options?.title || 'Informe de incidentes';
+    const periodLabel = options?.periodLabel || 'Ultimos dias';
+    const generatedAt = options?.generatedAt || new Date().toISOString();
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
     const chunks: Buffer[] = [];
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
-    doc.fontSize(16).text('Moni-D Weekly Report');
-    doc.moveDown(0.5);
-    doc.fontSize(10).text(`Generated: ${new Date().toISOString()}`);
-    doc.text(`Total incidents: ${incidents.length}`);
+    const total = incidents.length;
+    const openCount = incidents.filter((incident) => !incident.end_at).length;
+    const closedCount = total - openCount;
+    const ackedCount = incidents.filter((incident) => incident.ack_by).length;
+    const unackedCount = total - ackedCount;
+
+    doc.fontSize(18).font('Helvetica-Bold').text(title);
+    doc.moveDown(0.4);
+    doc.fontSize(10).font('Helvetica').text(`Periodo: ${periodLabel}`);
+    doc.text(`Generado: ${generatedAt}`);
+    doc.moveDown(0.6);
+    doc.font('Helvetica-Bold').text('Resumen');
+    doc.font('Helvetica');
+    doc.text(`Total incidentes: ${total}`);
+    doc.text(`Abiertos: ${openCount}`);
+    doc.text(`Cerrados: ${closedCount}`);
+    doc.text(`Ack: ${ackedCount}`);
+    doc.text(`Sin ack: ${unackedCount}`);
     doc.moveDown();
 
     const columns = [
-      { label: 'Node', width: 150 },
-      { label: 'Start', width: 110 },
-      { label: 'End', width: 110 },
-      { label: 'Status', width: 60 },
-      { label: 'Duration', width: 70 },
-      { label: 'Owner', width: 70 }
+      { label: 'Servicio', width: 150 },
+      { label: 'Inicio', width: 110 },
+      { label: 'Fin', width: 110 },
+      { label: 'Estado', width: 60 },
+      { label: 'Duracion', width: 70 },
+      { label: 'Responsable', width: 70 }
     ];
 
     const truncate = (value: string, max: number) => {
@@ -365,13 +430,13 @@ export async function buildIncidentPdf(incidents: Array<any>): Promise<Buffer> {
         doc.addPage();
         drawRow(columns.map((col) => col.label), true);
       }
-      const status = incident.end_at ? 'CLOSED' : 'OPEN';
+      const status = incident.end_at ? 'CERRADO' : 'ABIERTO';
       drawRow([
         String(incident.node_name || ''),
         String(incident.start_at || ''),
         String(incident.end_at || '-'),
         status,
-        `${incident.duration_sec ?? ''}s`,
+        formatDurationSec(incident.duration_sec),
         String(incident.owner || '-')
       ]);
     }

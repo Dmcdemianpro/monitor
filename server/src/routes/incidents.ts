@@ -116,7 +116,10 @@ export async function registerIncidentRoutes(app: FastifyInstance) {
   app.get('/api/incidents/export/pdf', { preHandler: requireRole(['admin']) }, async (req, reply) => {
     const query = z.object({ days: z.coerce.number().int().min(1).max(365).default(90) }).parse(req.query);
     const incidents = await listIncidentsForReport(query.days);
-    const pdf = await buildIncidentPdf(incidents);
+    const pdf = await buildIncidentPdf(incidents, {
+      title: 'Informe de incidentes',
+      periodLabel: `Ultimos ${query.days} dias`
+    });
     reply.header('Content-Type', 'application/pdf');
     reply.header('Content-Disposition', 'attachment; filename="incidents.pdf"');
     reply.send(pdf);
