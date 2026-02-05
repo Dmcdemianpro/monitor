@@ -84,6 +84,7 @@ REPORT_WEEKDAY=1   # 0=Sunday, 1=Monday, ...
 REPORT_HOUR=8      # formato 24h
 ```
 El correo semanal incluye adjuntos PDF + CSV (CSV tambien disponible via Admin > Incidentes export).
+En Admin > Incidentes puedes exportar CSV y PDF bajo demanda.
 
 ## Metricas por agente
 Metricas opcionales del servidor pueden enviarse via:

@@ -315,7 +315,7 @@ function buildIncidentCsv(incidents: Array<any>) {
     .join('\n');
 }
 
-async function buildIncidentPdf(incidents: Array<any>): Promise<Buffer> {
+export async function buildIncidentPdf(incidents: Array<any>): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
     const chunks: Buffer[] = [];

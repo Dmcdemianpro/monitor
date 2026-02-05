@@ -12,6 +12,7 @@ import {
   deleteReportRecipient,
   deleteSilence,
   exportIncidents,
+  exportIncidentsPdf,
   fetchAgentMetrics,
   fetchAgentSeries,
   fetchAgentSummary,
@@ -254,6 +255,7 @@ export default function App() {
   const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null);
   const [incidentNoteDraft, setIncidentNoteDraft] = useState('');
   const [incidentOwnerDraft, setIncidentOwnerDraft] = useState('');
+  const [incidentAckDraft, setIncidentAckDraft] = useState('');
   const [query, setQuery] = useState('');
   const [view, setView] = useState<View>('dashboard');
   const [adminTab, setAdminTab] = useState<
@@ -748,6 +750,7 @@ export default function App() {
     setIncidentNotes([]);
     setSelectedIncidentId(null);
     setIncidentNoteDraft('');
+    setIncidentAckDraft('');
     setIncidentOwnerDraft('');
   };
 
@@ -917,6 +920,7 @@ export default function App() {
       setIncidentNotes(res.notes);
       const incident = incidents.find((item) => item.id === incidentId);
       setIncidentOwnerDraft(incident?.owner || '');
+      setIncidentAckDraft(incident?.ack_note || '');
     } catch (err: any) {
       setAuthError(err?.message || 'No se pudo cargar notas');
     }
@@ -943,10 +947,26 @@ export default function App() {
       return;
     }
     try {
-      await acknowledgeIncident(incidentId, { acknowledged: true, by: authUser.username });
+      await acknowledgeIncident(incidentId, {
+        acknowledged: true,
+        by: authUser.username,
+        note: incidentAckDraft.trim()
+      });
       await loadData();
     } catch (err: any) {
       setAuthError(err?.message || 'No se pudo reconocer');
+    }
+  };
+
+  const handleClearAck = async (incidentId: number) => {
+    if (!authUser) {
+      return;
+    }
+    try {
+      await acknowledgeIncident(incidentId, { acknowledged: false, by: authUser.username });
+      await loadData();
+    } catch (err: any) {
+      setAuthError(err?.message || 'No se pudo quitar ack');
     }
   };
 
@@ -974,6 +994,20 @@ export default function App() {
       URL.revokeObjectURL(url);
     } catch (err: any) {
       setAuthError(err?.message || 'No se pudo exportar');
+    }
+  };
+
+  const handleExportIncidentsPdf = async () => {
+    try {
+      const pdf = await exportIncidentsPdf(90);
+      const url = URL.createObjectURL(pdf);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'incidents.pdf';
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setAuthError(err?.message || 'No se pudo exportar PDF');
     }
   };
 
@@ -2301,9 +2335,14 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
                   <h2>Incidentes</h2>
                   <span className="panel-sub">Gestion y seguimiento.</span>
                 </div>
-                <button className="ghost" onClick={handleExportIncidents}>
-                  Export CSV
-                </button>
+                <div className="panel-actions">
+                  <button className="ghost" onClick={handleExportIncidents}>
+                    Export CSV
+                  </button>
+                  <button className="ghost" onClick={handleExportIncidentsPdf}>
+                    Export PDF
+                  </button>
+                </div>
               </div>
               <div className="panel-body scroll">
                 <div className="incident-list">
@@ -2356,12 +2395,43 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
                         {selectedIncident.end_at ? 'Cerrado' : 'Abierto'}
                       </div>
                     </div>
-                    {!selectedIncident.ack_at ? (
-                      <button className="ghost" onClick={() => handleAckIncident(selectedIncident.id)}>
-                        Acknowledge
-                      </button>
+                    <div className="detail-actions">
+                      {selectedIncident.ack_at ? (
+                        <button className="ghost" onClick={() => handleClearAck(selectedIncident.id)}>
+                          Quitar ack
+                        </button>
+                      ) : (
+                        <button className="ghost" onClick={() => handleAckIncident(selectedIncident.id)}>
+                          Acknowledge
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="detail-meta">
+                    <span className={`status-pill ${selectedIncident.ack_at ? 'ok' : 'warn'}`}>
+                      {selectedIncident.ack_at ? 'Ack' : 'Sin ack'}
+                    </span>
+                    {selectedIncident.ack_at ? (
+                      <span className="muted">
+                        Por {selectedIncident.ack_by || '-'} ? {formatDate(selectedIncident.ack_at)}
+                      </span>
                     ) : null}
                   </div>
+                  {!selectedIncident.ack_at ? (
+                    <label>
+                      Nota de ack (opcional)
+                      <textarea
+                        value={incidentAckDraft}
+                        onChange={(event) => setIncidentAckDraft(event.target.value)}
+                        rows={2}
+                      />
+                    </label>
+                  ) : selectedIncident.ack_note ? (
+                    <div className="note ack-note">
+                      <div className="note-meta">Nota de ack</div>
+                      <div>{selectedIncident.ack_note}</div>
+                    </div>
+                  ) : null}
                   <label>
                     Responsable
                     <input

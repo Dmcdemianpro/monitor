@@ -325,6 +325,18 @@ export async function exportIncidents(days = 90) {
   return res.text();
 }
 
+export async function exportIncidentsPdf(days = 90) {
+  const token = getAuthToken();
+  const res = await fetch(`${API_URL}/api/incidents/export/pdf?days=${days}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {}
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Request failed: ${res.status}`);
+  }
+  return res.blob();
+}
+
 export async function fetchReportRecipients() {
   return request<{ recipients: ReportRecipient[] }>('/api/reports/recipients');
 }

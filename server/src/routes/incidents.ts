@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requireRole } from '../auth';
+import { buildIncidentPdf } from '../email';
 import {
   acknowledgeIncident,
   addIncidentNote,
@@ -110,5 +111,14 @@ export async function registerIncidentRoutes(app: FastifyInstance) {
     reply.header('Content-Type', 'text/csv');
     reply.header('Content-Disposition', 'attachment; filename="incidents.csv"');
     reply.send(csv);
+  });
+
+  app.get('/api/incidents/export/pdf', { preHandler: requireRole(['admin']) }, async (req, reply) => {
+    const query = z.object({ days: z.coerce.number().int().min(1).max(365).default(90) }).parse(req.query);
+    const incidents = await listIncidentsForReport(query.days);
+    const pdf = await buildIncidentPdf(incidents);
+    reply.header('Content-Type', 'application/pdf');
+    reply.header('Content-Disposition', 'attachment; filename="incidents.pdf"');
+    reply.send(pdf);
   });
 }
