@@ -270,6 +270,7 @@ export default function App() {
     tag: '',
     criticality: ''
   });
+  const [silenceDuration, setSilenceDuration] = useState('');
   const [policyForm, setPolicyForm] = useState({
     id: 0,
     name: '',
@@ -692,6 +693,7 @@ export default function App() {
       tag: '',
       criticality: ''
     });
+    setSilenceDuration('');
     setPolicyForm({ id: 0, name: '', enabled: true, levels: [] });
     setIncidentNotes([]);
     setSelectedIncidentId(null);
@@ -776,6 +778,7 @@ export default function App() {
         tag: '',
         criticality: ''
       });
+      setSilenceDuration('');
       await loadAdminData();
     } catch (err: any) {
       setAuthError(err?.message || 'No se pudo guardar el silencio');
@@ -795,6 +798,7 @@ export default function App() {
       tag: silence.tag || '',
       criticality: silence.criticality || ''
     });
+    setSilenceDuration('');
   };
 
   const handleSilenceDelete = async (silence: Silence) => {
@@ -943,6 +947,18 @@ export default function App() {
     } catch (err: any) {
       setAuthError(err?.message || 'No se pudo eliminar');
     }
+  };
+
+  const applySilenceDuration = (minutes: number) => {
+    setSilenceForm((prev) => {
+      let base = prev.startAt ? new Date(prev.startAt) : new Date();
+      if (Number.isNaN(base.getTime())) {
+        base = new Date();
+      }
+      const startAt = prev.startAt ? prev.startAt : base.toISOString().slice(0, 16);
+      const endAt = new Date(base.getTime() + minutes * 60000).toISOString().slice(0, 16);
+      return { ...prev, startAt, endAt };
+    });
   };
 
   return (
@@ -1943,6 +1959,42 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
                   </div>
                   <div className="form-row">
                     <label>
+                      Duracion rapida
+                      <select
+                        value={silenceDuration}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setSilenceDuration(value);
+                          const minutes = Number(value);
+                          if (Number.isFinite(minutes) && minutes > 0) {
+                            applySilenceDuration(minutes);
+                          }
+                        }}
+                      >
+                        <option value="">Manual</option>
+                        <option value="30">30 min</option>
+                        <option value="60">1 hora</option>
+                        <option value="120">2 horas</option>
+                        <option value="240">4 horas</option>
+                        <option value="480">8 horas</option>
+                        <option value="1440">24 horas</option>
+                      </select>
+                    </label>
+                    <label>
+                      Activo
+                      <select
+                        value={silenceForm.enabled ? 'yes' : 'no'}
+                        onChange={(event) =>
+                          setSilenceForm({ ...silenceForm, enabled: event.target.value === 'yes' })
+                        }
+                      >
+                        <option value="yes">Si</option>
+                        <option value="no">No</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="form-row">
+                    <label>
                       Nodo
                       <select
                         value={silenceForm.nodeId}
@@ -1956,18 +2008,6 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
                             {node.name}
                           </option>
                         ))}
-                      </select>
-                    </label>
-                    <label>
-                      Activo
-                      <select
-                        value={silenceForm.enabled ? 'yes' : 'no'}
-                        onChange={(event) =>
-                          setSilenceForm({ ...silenceForm, enabled: event.target.value === 'yes' })
-                        }
-                      >
-                        <option value="yes">Si</option>
-                        <option value="no">No</option>
                       </select>
                     </label>
                   </div>

@@ -1212,6 +1212,32 @@ export async function hasAlertEvent(params: {
   return res.rowCount > 0;
 }
 
+export async function hasRecentAlertEvent(params: {
+  nodeId: number;
+  type: string;
+  level?: number | null;
+  channelId?: number | null;
+  windowMin: number;
+}): Promise<boolean> {
+  if (params.windowMin <= 0) {
+    return false;
+  }
+  const res = await pool.query(
+    `
+    SELECT 1
+      FROM alert_events
+     WHERE node_id = $1
+       AND type = $2
+       AND COALESCE(level, 0) = COALESCE($3, 0)
+       AND channel_id IS NOT DISTINCT FROM $4
+       AND sent_at >= now() - ($5 || ' minutes')::interval
+     LIMIT 1
+    `,
+    [params.nodeId, params.type, params.level ?? null, params.channelId ?? null, params.windowMin]
+  );
+  return res.rowCount > 0;
+}
+
 export async function recordAlertEvent(params: {
   incidentId: number | null;
   nodeId: number;

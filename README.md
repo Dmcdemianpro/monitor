@@ -70,7 +70,7 @@ VIEWER_PASS=view_pass
 - Silencios (ventanas de mantenimiento) por nodo/area/grupo/tag/criticidad.
 - Escalamiento envia alertas adicionales despues de un delay.
 - Alertas de CPU/RAM/Disco por agente con umbrales por nodo.
-- Cooldown anti-spam por nodo con `ALERT_COOLDOWN_MIN`.
+- Deduplicacion anti-spam por nodo con `ALERT_COOLDOWN_MIN` (servicios + agentes).
 - Alertas de recuperacion cuando vuelve bajo el umbral.
 
 ## Reporte semanal

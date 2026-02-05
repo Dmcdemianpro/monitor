@@ -8,6 +8,7 @@ import {
   getRecipientsForNode,
   getEscalationPolicyForNode,
   hasAlertEvent,
+  hasRecentAlertEvent,
   isNodeSilenced,
   listAlertChannelsForNode,
   listIncidentsForReport,
@@ -141,44 +142,64 @@ async function dispatchAlert(params: {
   error?: string | null;
   level?: number | null;
   channels: AlertChannel[];
+  cooldownMin: number;
   logger: Logger;
 }) {
-  const { type, node, incidentId, recipients, error, level, channels, logger } = params;
+  const { type, node, incidentId, recipients, error, level, channels, cooldownMin, logger } = params;
   const payload = buildAlertPayload({ type, level, node, error });
 
   if (recipients.length) {
-    const exists = await hasAlertEvent({ incidentId, type, level, channelId: null });
-    if (!exists) {
-      try {
-        const { subject } = await sendAlert({
-          type,
-          node,
-          recipients,
-          error: error ?? undefined,
-          level: level ?? undefined
-        });
-        await createNotification({
-          nodeId: node.id,
-          type,
-          recipients,
-          subject
-        });
-        await recordAlertEvent({
-          incidentId,
-          nodeId: node.id,
-          type,
-          level,
-          channelId: null,
-          recipients: recipients.join(',')
-        });
-      } catch (err: any) {
-        logger.error('email alert failed', node.name, err?.message || err);
+    const recent = await hasRecentAlertEvent({
+      nodeId: node.id,
+      type,
+      level: level ?? null,
+      channelId: null,
+      windowMin: cooldownMin
+    });
+    if (!recent) {
+      const exists = await hasAlertEvent({ incidentId, type, level, channelId: null });
+      if (!exists) {
+        try {
+          const { subject } = await sendAlert({
+            type,
+            node,
+            recipients,
+            error: error ?? undefined,
+            level: level ?? undefined
+          });
+          await createNotification({
+            nodeId: node.id,
+            type,
+            recipients,
+            subject
+          });
+          await recordAlertEvent({
+            incidentId,
+            nodeId: node.id,
+            type,
+            level,
+            channelId: null,
+            recipients: recipients.join(',')
+          });
+        } catch (err: any) {
+          logger.error('email alert failed', node.name, err?.message || err);
+        }
       }
     }
   }
 
   for (const channel of channels) {
     if (!channel.enabled) {
+      continue;
+    }
+    const recent = await hasRecentAlertEvent({
+      nodeId: node.id,
+      type,
+      level: level ?? null,
+      channelId: channel.id,
+      windowMin: cooldownMin
+    });
+    if (recent) {
       continue;
     }
     const exists = await hasAlertEvent({ incidentId, type, level, channelId: channel.id });
@@ -205,9 +226,10 @@ async function handleEscalations(params: {
   node: NodeConfig;
   incidentId: number;
   incidentStartAt: string | null;
+  cooldownMin: number;
   logger: Logger;
 }) {
-  const { node, incidentId, incidentStartAt, logger } = params;
+  const { node, incidentId, incidentStartAt, cooldownMin, logger } = params;
   if (!incidentStartAt) {
     return;
   }
@@ -241,6 +263,7 @@ async function handleEscalations(params: {
       recipients: Array.from(recipients),
       level: level.level,
       channels,
+      cooldownMin,
       logger
     });
   }
@@ -328,6 +351,7 @@ class NodeRunner {
         criticality: this.node.criticality ?? null,
         tags: this.node.tags || []
       });
+      const cooldownMin = this.node.alertCooldownMin ?? env.ALERT_COOLDOWN_MIN;
 
       if (incidentId && !silenced) {
         const channels = await listAlertChannelsForNode(this.node.id);
@@ -340,6 +364,7 @@ class NodeRunner {
             recipients,
             error,
             channels,
+            cooldownMin,
             logger: this.logger
           });
         }
@@ -352,6 +377,7 @@ class NodeRunner {
             incidentId,
             recipients,
             channels,
+            cooldownMin,
             logger: this.logger
           });
         }
@@ -361,6 +387,7 @@ class NodeRunner {
             node: this.node,
             incidentId,
             incidentStartAt,
+            cooldownMin,
             logger: this.logger
           });
         }
