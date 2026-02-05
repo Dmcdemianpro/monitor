@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requireRole } from '../auth';
 import { env } from '../env';
-import { sendDiskAlert } from '../email';
+import { sendMetricAlert } from '../email';
 import {
   createAuditLog,
   createNotification,
@@ -16,7 +16,8 @@ import {
   listLatestAgentMetricsPublic,
   recordAlertEvent,
   recordAgentMetric,
-  setAgentDiskAlertState,
+  setAgentMetricAlertState,
+  type AgentAlertState,
   type NodeConfig
 } from '../store';
 
@@ -56,17 +57,41 @@ async function sendChannelAlert(channel: any, payload: any) {
   }
 }
 
-function buildDiskPayload(params: {
+type MetricKey = 'cpu' | 'mem' | 'disk';
+type MetricStatus = 'high' | 'recovered';
+
+const METRIC_LABELS: Record<MetricKey, string> = {
+  cpu: 'CPU',
+  mem: 'RAM',
+  disk: 'Disco'
+};
+
+function getMetricThreshold(node: NodeConfig, metric: MetricKey) {
+  if (metric === 'cpu') return node.cpuAlertPct;
+  if (metric === 'mem') return node.memAlertPct;
+  return node.diskAlertPct;
+}
+
+function metricAlertType(metric: MetricKey, status: MetricStatus) {
+  return `${metric}_${status === 'high' ? 'high' : 'recovered'}`;
+}
+
+function buildMetricPayload(params: {
   node: NodeConfig;
-  diskPct: number;
+  metric: MetricKey;
+  status: MetricStatus;
+  value: number;
   threshold: number;
 }) {
-  const { node, diskPct, threshold } = params;
+  const { node, metric, status, value, threshold } = params;
   return {
-    type: 'disk_high',
+    type: metricAlertType(metric, status),
+    status: status === 'high' ? 'HIGH' : 'OK',
+    metric,
+    metricLabel: METRIC_LABELS[metric],
     at: new Date().toISOString(),
+    valuePct: value,
     thresholdPct: threshold,
-    diskPct,
     node: {
       id: node.id,
       name: node.name,
@@ -80,72 +105,60 @@ function buildDiskPayload(params: {
   };
 }
 
-async function handleDiskAlert(params: { nodeId: number; diskPct: number }) {
-  const { nodeId, diskPct } = params;
-  if (!Number.isFinite(diskPct)) {
-    return;
+function isCooldownActive(lastAlertAt: string | null, cooldownMin: number) {
+  if (!lastAlertAt || cooldownMin <= 0) {
+    return false;
   }
-  const node = await getNodeConfig(nodeId);
-  if (!node) {
-    return;
+  const last = new Date(lastAlertAt).getTime();
+  if (Number.isNaN(last)) {
+    return false;
   }
-  if (!node.agentEnabled) {
-    return;
-  }
+  return Date.now() - last < cooldownMin * 60_000;
+}
 
-  const threshold = env.DISK_ALERT_PCT;
-  const isHigh = diskPct >= threshold;
-  const state = await getAgentAlertState(nodeId);
-
-  if (!isHigh) {
-    if (state.diskAlertActive) {
-      await setAgentDiskAlertState({ nodeId, active: false, lastAlertAt: null });
-    }
-    return;
-  }
-
-  if (state.diskAlertActive) {
-    return;
-  }
-
-  const silenced = await isNodeSilenced({
-    id: node.id,
-    area: node.area ?? null,
-    groupName: node.groupName ?? null,
-    criticality: node.criticality ?? null,
-    tags: node.tags || []
-  });
-  if (silenced) {
-    return;
-  }
-
-  const recipients = await getRecipientsForNode(node.id);
-  const channels = await listAlertChannelsForNode(node.id);
-  const payload = buildDiskPayload({ node, diskPct, threshold });
+async function dispatchMetricAlert(params: {
+  node: NodeConfig;
+  metric: MetricKey;
+  status: MetricStatus;
+  value: number;
+  threshold: number;
+  recipients: string[];
+  channels: any[];
+}) {
+  const { node, metric, status, value, threshold, recipients, channels } = params;
+  const type = metricAlertType(metric, status);
+  const payload = buildMetricPayload({ node, metric, status, value, threshold });
   const enabledChannels = channels.filter((channel) => channel.enabled);
 
   let emailSent = false;
-  let subject = '';
   if (recipients.length) {
     try {
-      const res = await sendDiskAlert({
+      const res = await sendMetricAlert({
         node,
         recipients,
-        diskPct,
+        metric,
+        status,
+        value,
         threshold
       });
-      subject = res.subject;
       emailSent = !res.skipped;
       if (emailSent) {
         await createNotification({
           nodeId: node.id,
-          type: 'disk_high',
+          type,
           recipients,
-          subject
+          subject: res.subject
+        });
+        await recordAlertEvent({
+          incidentId: null,
+          nodeId: node.id,
+          type,
+          recipients: recipients.join(','),
+          dedupKey: `${type}:${node.id}`
         });
       }
     } catch (err: any) {
-      console.error('disk email alert failed', node.name, err?.message || err);
+      console.error('metric email alert failed', node.name, err?.message || err);
     }
   }
 
@@ -157,30 +170,102 @@ async function handleDiskAlert(params: { nodeId: number; diskPct: number }) {
       await recordAlertEvent({
         incidentId: null,
         nodeId: node.id,
-        type: 'disk_high',
+        type,
         channelId: channel.id,
         recipients: channel.name,
-        dedupKey: `disk_high:${node.id}`
+        dedupKey: `${type}:${node.id}:${channel.id ?? 'chan'}`
       });
     } catch (err: any) {
-      console.error('disk channel alert failed', channel.name, err?.message || err);
+      console.error('metric channel alert failed', channel.name, err?.message || err);
     }
   }
 
-  if (emailSent || channelSent) {
-    await recordAlertEvent({
-      incidentId: null,
-      nodeId: node.id,
-      type: 'disk_high',
-      recipients: recipients.join(','),
-      dedupKey: `disk_high:${node.id}`
+  return emailSent || channelSent;
+}
+
+async function handleMetricAlert(params: {
+  node: NodeConfig;
+  metric: MetricKey;
+  value: number | null | undefined;
+  state: AgentAlertState;
+  silenced: boolean;
+  cooldownMin: number;
+  loadTargets: () => Promise<{ recipients: string[]; channels: any[] }>;
+}) {
+  const { node, metric, value, state, silenced, cooldownMin, loadTargets } = params;
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) {
+    return;
+  }
+  const numericValue = Number(value);
+  const threshold = getMetricThreshold(node, metric);
+  const metricState = state[metric];
+  const high = numericValue >= threshold;
+
+  if (high) {
+    if (metricState.active) {
+      return;
+    }
+    if (isCooldownActive(metricState.lastAlertAt, cooldownMin)) {
+      return;
+    }
+    if (silenced) {
+      return;
+    }
+    const targets = await loadTargets();
+    if (!targets.recipients.length && !targets.channels.length) {
+      return;
+    }
+    const sent = await dispatchMetricAlert({
+      node,
+      metric,
+      status: 'high',
+      value: numericValue,
+      threshold,
+      recipients: targets.recipients,
+      channels: targets.channels
     });
-    await setAgentDiskAlertState({
+    if (sent) {
+      await setAgentMetricAlertState({
+        nodeId: node.id,
+        metric,
+        active: true,
+        lastAlertAt: new Date().toISOString()
+      });
+    }
+    return;
+  }
+
+  if (!metricState.active) {
+    return;
+  }
+  if (silenced) {
+    await setAgentMetricAlertState({
       nodeId: node.id,
-      active: true,
-      lastAlertAt: new Date().toISOString()
+      metric,
+      active: false,
+      lastAlertAt: metricState.lastAlertAt
+    });
+    return;
+  }
+
+  const targets = await loadTargets();
+  if (targets.recipients.length || targets.channels.length) {
+    await dispatchMetricAlert({
+      node,
+      metric,
+      status: 'recovered',
+      value: numericValue,
+      threshold,
+      recipients: targets.recipients,
+      channels: targets.channels
     });
   }
+  await setAgentMetricAlertState({
+    nodeId: node.id,
+    metric,
+    active: false,
+    lastAlertAt: metricState.lastAlertAt
+  });
 }
 
 export async function registerAgentRoutes(app: FastifyInstance) {
@@ -199,6 +284,12 @@ export async function registerAgentRoutes(app: FastifyInstance) {
       })
       .parse(req.body);
 
+    const node = await getNodeConfig(body.nodeId);
+    if (!node) {
+      reply.code(404).send({ error: 'node not found' });
+      return;
+    }
+
     await recordAgentMetric({
       nodeId: body.nodeId,
       cpuPct: body.cpuPct ?? null,
@@ -208,11 +299,52 @@ export async function registerAgentRoutes(app: FastifyInstance) {
       processes: body.processes ?? null
     });
 
-    if (body.diskPct !== undefined && body.diskPct !== null) {
+    if (node.agentEnabled) {
       try {
-        await handleDiskAlert({ nodeId: body.nodeId, diskPct: Number(body.diskPct) });
+        const state = await getAgentAlertState(node.id);
+        const silenced = await isNodeSilenced({
+          id: node.id,
+          area: node.area ?? null,
+          groupName: node.groupName ?? null,
+          criticality: node.criticality ?? null,
+          tags: node.tags || []
+        });
+        const cooldownMin = node.alertCooldownMin ?? env.ALERT_COOLDOWN_MIN;
+        let targets: { recipients: string[]; channels: any[] } | null = null;
+        const loadTargets = async () => {
+          if (!targets) {
+            const [recipients, channels] = await Promise.all([
+              getRecipientsForNode(node.id),
+              listAlertChannelsForNode(node.id)
+            ]);
+            targets = { recipients, channels };
+          }
+          return targets;
+        };
+
+        const metrics: Array<{ metric: MetricKey; value: number | null | undefined }> = [
+          { metric: 'cpu', value: body.cpuPct },
+          { metric: 'mem', value: body.memPct },
+          { metric: 'disk', value: body.diskPct }
+        ];
+
+        for (const item of metrics) {
+          try {
+            await handleMetricAlert({
+              node,
+              metric: item.metric,
+              value: item.value,
+              state,
+              silenced,
+              cooldownMin,
+              loadTargets
+            });
+          } catch (err: any) {
+            console.error('metric alert handler failed', node.name, item.metric, err?.message || err);
+          }
+        }
       } catch (err: any) {
-        console.error('disk alert handler failed', err?.message || err);
+        console.error('agent alert handler failed', node.name, err?.message || err);
       }
     }
 

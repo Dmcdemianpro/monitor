@@ -69,7 +69,9 @@ VIEWER_PASS=view_pass
 - Canales extra (Webhook/Teams/Slack/SMS) se configuran en Admin > Alertas.
 - Silencios (ventanas de mantenimiento) por nodo/area/grupo/tag/criticidad.
 - Escalamiento envia alertas adicionales despues de un delay.
-- Alerta de disco por agente cuando supera `DISK_ALERT_PCT` (default 90%).
+- Alertas de CPU/RAM/Disco por agente con umbrales por nodo.
+- Cooldown anti-spam por nodo con `ALERT_COOLDOWN_MIN`.
+- Alertas de recuperacion cuando vuelve bajo el umbral.
 
 ## Reporte semanal
 Configura destinatarios en Admin > Reportes. El servidor envia el resumen semanal cuando:
@@ -88,11 +90,15 @@ X-Agent-Key: tu_key
 Env:
 ```
 AGENT_KEY=tu_key
+CPU_ALERT_PCT=85
+MEM_ALERT_PCT=90
 DISK_ALERT_PCT=90
+ALERT_COOLDOWN_MIN=30
 ```
 Scripts disponibles en `C:\moni-D\agent` (ver `C:\moni-D\agent\README.md`).
 Paso a paso para instalar agentes: `C:\moni-D\agent\README.md`.
-Opcional UI: `VITE_DISK_ALERT_PCT=90` para mostrar el umbral en el dashboard.
+Los umbrales pueden sobreescribirse por nodo en Administracion > Nodos.
+Opcional UI: `VITE_CPU_ALERT_PCT`, `VITE_MEM_ALERT_PCT`, `VITE_DISK_ALERT_PCT`, `VITE_ALERT_COOLDOWN_MIN`.
 
 ## API (resumen)
 - `GET /api/nodes`

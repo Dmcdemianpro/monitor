@@ -100,4 +100,4 @@ sudo ./install-linux-agent.sh
 ## Notas
 - Disco es el maximo uso (%) entre discos montados.
 - Windows incluye top 5 procesos por CPU como detalle opcional.
-- Umbral de alerta de disco se configura en backend con `DISK_ALERT_PCT`.
+- Umbrales CPU/RAM/Disco se configuran en backend por nodo (Administracion > Nodos).

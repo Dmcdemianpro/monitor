@@ -67,6 +67,10 @@ export async function createNode(payload: {
   tlsEnabled: boolean;
   escalationPolicyId: number | null;
   agentEnabled: boolean;
+  cpuAlertPct: number;
+  memAlertPct: number;
+  diskAlertPct: number;
+  alertCooldownMin: number;
   area: string;
   groupName: string;
   criticality: string;
@@ -91,6 +95,10 @@ export async function updateNode(id: number, payload: {
   tlsEnabled: boolean;
   escalationPolicyId: number | null;
   agentEnabled: boolean;
+  cpuAlertPct: number;
+  memAlertPct: number;
+  diskAlertPct: number;
+  alertCooldownMin: number;
   area: string;
   groupName: string;
   criticality: string;

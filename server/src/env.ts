@@ -36,7 +36,10 @@ const schema = z.object({
   REPORT_WEEKDAY: z.coerce.number().int().min(0).max(6).default(1),
   REPORT_HOUR: z.coerce.number().int().min(0).max(23).default(8),
 
+  CPU_ALERT_PCT: z.coerce.number().int().min(1).max(100).default(85),
+  MEM_ALERT_PCT: z.coerce.number().int().min(1).max(100).default(90),
   DISK_ALERT_PCT: z.coerce.number().int().min(1).max(100).default(90),
+  ALERT_COOLDOWN_MIN: z.coerce.number().int().min(0).max(1440).default(30),
 
   AGENT_KEY: z.string().optional().default('')
 });

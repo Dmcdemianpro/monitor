@@ -12,6 +12,10 @@ export type NodeRecord = {
   tlsEnabled: boolean;
   escalationPolicyId: number | null;
   agentEnabled: boolean;
+  cpuAlertPct: number;
+  memAlertPct: number;
+  diskAlertPct: number;
+  alertCooldownMin: number;
   area: string | null;
   groupName: string | null;
   criticality: string;
@@ -35,6 +39,10 @@ export type NodeConfig = {
   tlsEnabled: boolean;
   escalationPolicyId: number | null;
   agentEnabled: boolean;
+  cpuAlertPct: number;
+  memAlertPct: number;
+  diskAlertPct: number;
+  alertCooldownMin: number;
   area: string | null;
   groupName: string | null;
   criticality: string;
@@ -53,6 +61,10 @@ export type NodeInput = {
   tlsEnabled: boolean;
   escalationPolicyId: number | null;
   agentEnabled: boolean;
+  cpuAlertPct: number;
+  memAlertPct: number;
+  diskAlertPct: number;
+  alertCooldownMin: number;
   area: string | null;
   groupName: string | null;
   criticality: string;
@@ -74,6 +86,10 @@ function mapRowToNode(row: any): NodeRecord {
     tlsEnabled: row.tls_enabled,
     escalationPolicyId: row.escalation_policy_id ?? null,
     agentEnabled: row.agent_enabled ?? false,
+    cpuAlertPct: Number(row.cpu_alert_pct ?? 85),
+    memAlertPct: Number(row.mem_alert_pct ?? 90),
+    diskAlertPct: Number(row.disk_alert_pct ?? 90),
+    alertCooldownMin: Number(row.alert_cooldown_min ?? 30),
     area: row.area ?? null,
     groupName: row.group_name ?? null,
     criticality: row.criticality ?? 'MEDIUM',
@@ -102,6 +118,7 @@ export async function listNodes(): Promise<NodeRecord[]> {
     SELECT n.id, n.name, n.host, n.port, n.enabled, n.tls_enabled,
            n.area, n.group_name, n.criticality, n.tags,
            n.escalation_policy_id, n.agent_enabled,
+           n.cpu_alert_pct, n.mem_alert_pct, n.disk_alert_pct, n.alert_cooldown_min,
            n.check_interval_sec, n.retry_interval_sec, n.timeout_ms,
            n.last_status, n.last_check_at, n.last_change_at,
            COALESCE(rec.recipients, '{}') AS recipients,
@@ -135,6 +152,10 @@ export async function getActiveNodes(): Promise<NodeConfig[]> {
            tls_enabled,
            escalation_policy_id,
            agent_enabled,
+           cpu_alert_pct,
+           mem_alert_pct,
+           disk_alert_pct,
+           alert_cooldown_min,
            area,
            group_name,
            criticality,
@@ -161,6 +182,10 @@ export async function getActiveNodes(): Promise<NodeConfig[]> {
     tlsEnabled: row.tls_enabled,
     escalationPolicyId: row.escalation_policy_id ?? null,
     agentEnabled: row.agent_enabled ?? false,
+    cpuAlertPct: Number(row.cpu_alert_pct ?? 85),
+    memAlertPct: Number(row.mem_alert_pct ?? 90),
+    diskAlertPct: Number(row.disk_alert_pct ?? 90),
+    alertCooldownMin: Number(row.alert_cooldown_min ?? 30),
     area: row.area ?? null,
     groupName: row.group_name ?? null,
     criticality: row.criticality ?? 'MEDIUM',
@@ -180,6 +205,10 @@ export async function getNodeConfig(nodeId: number): Promise<NodeConfig | null> 
            tls_enabled,
            escalation_policy_id,
            agent_enabled,
+           cpu_alert_pct,
+           mem_alert_pct,
+           disk_alert_pct,
+           alert_cooldown_min,
            area,
            group_name,
            criticality,
@@ -212,6 +241,10 @@ export async function getNodeConfig(nodeId: number): Promise<NodeConfig | null> 
     tlsEnabled: row.tls_enabled,
     escalationPolicyId: row.escalation_policy_id ?? null,
     agentEnabled: row.agent_enabled ?? false,
+    cpuAlertPct: Number(row.cpu_alert_pct ?? 85),
+    memAlertPct: Number(row.mem_alert_pct ?? 90),
+    diskAlertPct: Number(row.disk_alert_pct ?? 90),
+    alertCooldownMin: Number(row.alert_cooldown_min ?? 30),
     area: row.area ?? null,
     groupName: row.group_name ?? null,
     criticality: row.criticality ?? 'MEDIUM',
@@ -302,12 +335,16 @@ export async function createNode(data: NodeInput): Promise<number> {
         tls_enabled,
         escalation_policy_id,
         agent_enabled,
+        cpu_alert_pct,
+        mem_alert_pct,
+        disk_alert_pct,
+        alert_cooldown_min,
         area,
         group_name,
         criticality,
         tags
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       RETURNING id
       `,
       [
@@ -321,6 +358,10 @@ export async function createNode(data: NodeInput): Promise<number> {
         data.tlsEnabled,
         data.escalationPolicyId,
         data.agentEnabled,
+        data.cpuAlertPct,
+        data.memAlertPct,
+        data.diskAlertPct,
+        data.alertCooldownMin,
         normalizeText(data.area),
         normalizeText(data.groupName),
         data.criticality,
@@ -357,12 +398,16 @@ export async function updateNode(nodeId: number, data: NodeInput) {
              tls_enabled = $8,
              escalation_policy_id = $9,
              agent_enabled = $10,
-             area = $11,
-             group_name = $12,
-             criticality = $13,
-             tags = $14,
+             cpu_alert_pct = $11,
+             mem_alert_pct = $12,
+             disk_alert_pct = $13,
+             alert_cooldown_min = $14,
+             area = $15,
+             group_name = $16,
+             criticality = $17,
+             tags = $18,
              updated_at = now()
-       WHERE id = $15
+       WHERE id = $19
       `,
       [
         data.name,
@@ -375,6 +420,10 @@ export async function updateNode(nodeId: number, data: NodeInput) {
         data.tlsEnabled,
         data.escalationPolicyId,
         data.agentEnabled,
+        data.cpuAlertPct,
+        data.memAlertPct,
+        data.diskAlertPct,
+        data.alertCooldownMin,
         normalizeText(data.area),
         normalizeText(data.groupName),
         data.criticality,
@@ -1300,13 +1349,21 @@ export async function recordReportRun(type: string) {
   await pool.query('INSERT INTO report_runs (type) VALUES ($1)', [type]);
 }
 
-export async function getAgentAlertState(nodeId: number): Promise<{
-  diskAlertActive: boolean;
-  lastDiskAlertAt: string | null;
-}> {
+export type AgentAlertState = {
+  cpu: { active: boolean; lastAlertAt: string | null };
+  mem: { active: boolean; lastAlertAt: string | null };
+  disk: { active: boolean; lastAlertAt: string | null };
+};
+
+export async function getAgentAlertState(nodeId: number): Promise<AgentAlertState> {
   const res = await pool.query(
     `
-    SELECT disk_alert_active, last_disk_alert_at
+    SELECT cpu_alert_active,
+           mem_alert_active,
+           disk_alert_active,
+           last_cpu_alert_at,
+           last_mem_alert_at,
+           last_disk_alert_at
       FROM agent_alert_state
      WHERE node_id = $1
      LIMIT 1
@@ -1315,27 +1372,49 @@ export async function getAgentAlertState(nodeId: number): Promise<{
   );
 
   if (!res.rowCount) {
-    return { diskAlertActive: false, lastDiskAlertAt: null };
+    return {
+      cpu: { active: false, lastAlertAt: null },
+      mem: { active: false, lastAlertAt: null },
+      disk: { active: false, lastAlertAt: null }
+    };
   }
 
+  const row = res.rows[0];
   return {
-    diskAlertActive: Boolean(res.rows[0].disk_alert_active),
-    lastDiskAlertAt: res.rows[0].last_disk_alert_at
+    cpu: {
+      active: Boolean(row.cpu_alert_active),
+      lastAlertAt: row.last_cpu_alert_at
+    },
+    mem: {
+      active: Boolean(row.mem_alert_active),
+      lastAlertAt: row.last_mem_alert_at
+    },
+    disk: {
+      active: Boolean(row.disk_alert_active),
+      lastAlertAt: row.last_disk_alert_at
+    }
   };
 }
 
-export async function setAgentDiskAlertState(params: {
+export async function setAgentMetricAlertState(params: {
   nodeId: number;
+  metric: 'cpu' | 'mem' | 'disk';
   active: boolean;
   lastAlertAt: string | null;
 }) {
+  const columns: Record<'cpu' | 'mem' | 'disk', [string, string]> = {
+    cpu: ['cpu_alert_active', 'last_cpu_alert_at'],
+    mem: ['mem_alert_active', 'last_mem_alert_at'],
+    disk: ['disk_alert_active', 'last_disk_alert_at']
+  };
+  const [activeCol, lastCol] = columns[params.metric];
   await pool.query(
     `
-    INSERT INTO agent_alert_state (node_id, disk_alert_active, last_disk_alert_at)
+    INSERT INTO agent_alert_state (node_id, ${activeCol}, ${lastCol})
     VALUES ($1, $2, $3)
     ON CONFLICT (node_id)
-    DO UPDATE SET disk_alert_active = EXCLUDED.disk_alert_active,
-                  last_disk_alert_at = EXCLUDED.last_disk_alert_at
+    DO UPDATE SET ${activeCol} = EXCLUDED.${activeCol},
+                  ${lastCol} = EXCLUDED.${lastCol}
     `,
     [params.nodeId, params.active, params.lastAlertAt]
   );

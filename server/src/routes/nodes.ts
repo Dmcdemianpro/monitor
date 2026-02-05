@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requireRole } from '../auth';
+import { env } from '../env';
 import {
   createNode,
   createAuditLog,
@@ -23,6 +24,10 @@ const nodeSchema = z.object({
   tlsEnabled: z.coerce.boolean().default(false),
   escalationPolicyId: z.coerce.number().int().nullable().optional().default(null),
   agentEnabled: z.coerce.boolean().default(false),
+  cpuAlertPct: z.coerce.number().int().min(1).max(100).default(env.CPU_ALERT_PCT),
+  memAlertPct: z.coerce.number().int().min(1).max(100).default(env.MEM_ALERT_PCT),
+  diskAlertPct: z.coerce.number().int().min(1).max(100).default(env.DISK_ALERT_PCT),
+  alertCooldownMin: z.coerce.number().int().min(0).max(1440).default(env.ALERT_COOLDOWN_MIN),
   area: z.string().max(64).optional().default(''),
   groupName: z.string().max(64).optional().default(''),
   criticality: z.enum(['LOW', 'MEDIUM', 'HIGH']).default('MEDIUM'),

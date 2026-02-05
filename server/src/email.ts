@@ -5,6 +5,8 @@ import type { NodeConfig } from './store';
 const PDFDocument = require('pdfkit');
 
 export type AlertType = 'lost' | 'restored' | 'escalation';
+export type MetricAlertType = 'cpu' | 'mem' | 'disk';
+export type MetricAlertStatus = 'high' | 'recovered';
 
 const transport = nodemailer.createTransport({
   host: env.SMTP_HOST,
@@ -118,40 +120,73 @@ export async function sendAlert(params: {
   return { subject, skipped: false };
 }
 
-function buildDiskSubject(node: NodeConfig, diskPct: number, threshold: number) {
-  return `Moni-D alerta disco: ${node.name} ${diskPct.toFixed(1)}%`;
+const METRIC_META: Record<MetricAlertType, { label: string }> = {
+  cpu: { label: 'CPU' },
+  mem: { label: 'RAM' },
+  disk: { label: 'Disco' }
+};
+
+function buildMetricSubject(params: {
+  node: NodeConfig;
+  metric: MetricAlertType;
+  status: MetricAlertStatus;
+  value: number;
+  threshold: number;
+}) {
+  const { node, metric, status, value, threshold } = params;
+  const label = METRIC_META[metric].label;
+  if (status === 'recovered') {
+    return `Moni-D recuperacion ${label}: ${node.name}`;
+  }
+  return `Moni-D alerta ${label}: ${node.name} ${value.toFixed(1)}% (umbral ${threshold}%)`;
 }
 
-function buildDiskHtml(node: NodeConfig, diskPct: number, threshold: number) {
+function buildMetricHtml(params: {
+  node: NodeConfig;
+  metric: MetricAlertType;
+  status: MetricAlertStatus;
+  value: number;
+  threshold: number;
+}) {
+  const { node, metric, status, value, threshold } = params;
+  const label = METRIC_META[metric].label;
+  const statusLabel = status === 'recovered' ? 'OK' : 'ALTO';
+  const statusColor = status === 'recovered' ? '#16a34a' : '#ef4444';
+  const header =
+    status === 'recovered'
+      ? `${label} normalizado.`
+      : `${label} alto detectado.`;
   const rows: Array<[string, string]> = [
     ['Servicio', node.name],
     ['Host', `${node.host}:${node.port}`],
     ['Area', node.area || '-'],
     ['Grupo', node.groupName || '-'],
     ['Criticidad', node.criticality || '-'],
-    ['Uso de disco', `${diskPct.toFixed(1)}%`],
+    [label, `${value.toFixed(1)}%`],
     ['Umbral', `${threshold}%`],
     ['Hora', new Date().toISOString()]
   ];
   const body =
-    '<p style="margin:0 0 12px;color:#475569;">Uso de disco alto detectado.</p>' +
+    `<p style="margin:0 0 12px;color:#475569;">${header}</p>` +
     `<table style="width:100%;border-collapse:collapse;">${renderRows(rows)}</table>`;
-  return wrapCard('Moni-D alerta disco', `${diskPct.toFixed(1)}%`, '#ef4444', body);
+  return wrapCard(`Moni-D alerta ${label}`, statusLabel, statusColor, body);
 }
 
-export async function sendDiskAlert(params: {
+export async function sendMetricAlert(params: {
   node: NodeConfig;
   recipients: string[];
-  diskPct: number;
+  metric: MetricAlertType;
+  status: MetricAlertStatus;
+  value: number;
   threshold: number;
 }) {
-  const { node, recipients, diskPct, threshold } = params;
-  const subject = buildDiskSubject(node, diskPct, threshold);
+  const { node, recipients, metric, status, value, threshold } = params;
+  const subject = buildMetricSubject({ node, metric, status, value, threshold });
   if (!recipients.length) {
     return { subject, skipped: true };
   }
 
-  const html = buildDiskHtml(node, diskPct, threshold);
+  const html = buildMetricHtml({ node, metric, status, value, threshold });
 
   await transport.sendMail({
     from: env.SMTP_FROM,
@@ -161,6 +196,23 @@ export async function sendDiskAlert(params: {
   });
 
   return { subject, skipped: false };
+}
+
+export async function sendDiskAlert(params: {
+  node: NodeConfig;
+  recipients: string[];
+  diskPct: number;
+  threshold: number;
+}) {
+  const { node, recipients, diskPct, threshold } = params;
+  return sendMetricAlert({
+    node,
+    recipients,
+    metric: 'disk',
+    status: 'high',
+    value: diskPct,
+    threshold
+  });
 }
 
 export async function sendWeeklyReport(params: {

@@ -54,6 +54,13 @@ import type {
   AgentSeriesPoint
 } from './types';
 
+const DEFAULT_CPU_ALERT_PCT = Number.parseInt(import.meta.env.VITE_CPU_ALERT_PCT || '85', 10) || 85;
+const DEFAULT_MEM_ALERT_PCT = Number.parseInt(import.meta.env.VITE_MEM_ALERT_PCT || '90', 10) || 90;
+const DEFAULT_DISK_ALERT_PCT =
+  Number.parseInt(import.meta.env.VITE_DISK_ALERT_PCT || '90', 10) || 90;
+const DEFAULT_ALERT_COOLDOWN_MIN =
+  Number.parseInt(import.meta.env.VITE_ALERT_COOLDOWN_MIN || '30', 10) || 30;
+
 const emptyForm = {
   id: 0,
   name: '',
@@ -66,6 +73,10 @@ const emptyForm = {
   tlsEnabled: false,
   escalationPolicyId: null as number | null,
   agentEnabled: false,
+  cpuAlertPct: DEFAULT_CPU_ALERT_PCT,
+  memAlertPct: DEFAULT_MEM_ALERT_PCT,
+  diskAlertPct: DEFAULT_DISK_ALERT_PCT,
+  alertCooldownMin: DEFAULT_ALERT_COOLDOWN_MIN,
   area: '',
   groupName: '',
   criticality: 'MEDIUM',
@@ -94,7 +105,6 @@ type StatusInfo = {
 const CRITICALITY_OPTIONS = ['HIGH', 'MEDIUM', 'LOW'] as const;
 const METRICS_DAYS = 30;
 const LATENCY_DAYS = 7;
-const DISK_ALERT_PCT = Number.parseInt(import.meta.env.VITE_DISK_ALERT_PCT || '90', 10) || 90;
 
 function parseList(input: string) {
   return input
@@ -147,6 +157,18 @@ function formatMs(value: number | null | undefined) {
 
 function normalizeLabel(value: string | null | undefined) {
   return value && value.trim().length ? value.trim() : 'Unassigned';
+}
+
+function getThresholds(node?: Pick<
+  NodeRecord,
+  'cpuAlertPct' | 'memAlertPct' | 'diskAlertPct' | 'alertCooldownMin'
+> | null) {
+  return {
+    cpu: node?.cpuAlertPct ?? DEFAULT_CPU_ALERT_PCT,
+    mem: node?.memAlertPct ?? DEFAULT_MEM_ALERT_PCT,
+    disk: node?.diskAlertPct ?? DEFAULT_DISK_ALERT_PCT,
+    cooldown: node?.alertCooldownMin ?? DEFAULT_ALERT_COOLDOWN_MIN
+  };
 }
 
 function getStatus(node: NodeRecord): StatusInfo {
@@ -340,6 +362,10 @@ export default function App() {
     });
   }, [filteredNodes]);
 
+  const nodeById = useMemo(() => {
+    return new Map(nodes.map((node) => [node.id, node]));
+  }, [nodes]);
+
   const nodeMetricsMap = useMemo(() => {
     return new Map(nodeMetrics.map((metric) => [metric.nodeId, metric]));
   }, [nodeMetrics]);
@@ -383,10 +409,29 @@ export default function App() {
     return agentSeries[agentSeries.length - 1];
   }, [agentSeries]);
 
+  const agentSeriesNode = useMemo(() => {
+    if (!agentSeriesNodeId) {
+      return null;
+    }
+    return nodeById.get(agentSeriesNodeId) || null;
+  }, [agentSeriesNodeId, nodeById]);
+
+  const agentThresholds = useMemo(() => getThresholds(agentSeriesNode), [agentSeriesNode]);
+
+  const agentCpuHigh =
+    agentSeriesLatest?.cpuPct !== null &&
+    agentSeriesLatest?.cpuPct !== undefined &&
+    agentSeriesLatest.cpuPct >= agentThresholds.cpu;
+
+  const agentMemHigh =
+    agentSeriesLatest?.memPct !== null &&
+    agentSeriesLatest?.memPct !== undefined &&
+    agentSeriesLatest.memPct >= agentThresholds.mem;
+
   const agentDiskHigh =
     agentSeriesLatest?.diskPct !== null &&
     agentSeriesLatest?.diskPct !== undefined &&
-    agentSeriesLatest.diskPct >= DISK_ALERT_PCT;
+    agentSeriesLatest.diskPct >= agentThresholds.disk;
 
   const selectedIncident = useMemo(() => {
     if (!selectedIncidentId) {
@@ -522,6 +567,10 @@ export default function App() {
       tlsEnabled: form.tlsEnabled,
       escalationPolicyId: form.escalationPolicyId,
       agentEnabled: form.agentEnabled,
+      cpuAlertPct: Number(form.cpuAlertPct),
+      memAlertPct: Number(form.memAlertPct),
+      diskAlertPct: Number(form.diskAlertPct),
+      alertCooldownMin: Number(form.alertCooldownMin),
       area: form.area.trim(),
       groupName: form.groupName.trim(),
       criticality: form.criticality,
@@ -556,6 +605,10 @@ export default function App() {
       tlsEnabled: node.tlsEnabled,
       escalationPolicyId: node.escalationPolicyId ?? null,
       agentEnabled: node.agentEnabled ?? false,
+      cpuAlertPct: node.cpuAlertPct ?? DEFAULT_CPU_ALERT_PCT,
+      memAlertPct: node.memAlertPct ?? DEFAULT_MEM_ALERT_PCT,
+      diskAlertPct: node.diskAlertPct ?? DEFAULT_DISK_ALERT_PCT,
+      alertCooldownMin: node.alertCooldownMin ?? DEFAULT_ALERT_COOLDOWN_MIN,
       area: node.area ?? '',
       groupName: node.groupName ?? '',
       criticality: node.criticality ?? 'MEDIUM',
@@ -1039,10 +1092,20 @@ export default function App() {
                   const criticality = node.criticality || 'MEDIUM';
                   const uptimePct = metrics?.uptimePct ?? null;
                   const avgLatency = metrics?.avgLatencyMs ?? null;
+                  const thresholds = getThresholds(node);
+                  const cpuHigh =
+                    agentMetric?.cpuPct !== null &&
+                    agentMetric?.cpuPct !== undefined &&
+                    agentMetric.cpuPct >= thresholds.cpu;
+                  const memHigh =
+                    agentMetric?.memPct !== null &&
+                    agentMetric?.memPct !== undefined &&
+                    agentMetric.memPct >= thresholds.mem;
                   const diskHigh =
                     agentMetric?.diskPct !== null &&
                     agentMetric?.diskPct !== undefined &&
-                    agentMetric.diskPct >= DISK_ALERT_PCT;
+                    agentMetric.diskPct >= thresholds.disk;
+                  const resourcesHigh = cpuHigh || memHigh || diskHigh;
                   return (
                     <div className={`service-row ${status.tone}`} key={node.id}>
                       <span className={`status-pill ${status.tone}`}>{status.label}</span>
@@ -1054,12 +1117,18 @@ export default function App() {
                       <span className="service-host mono">
                         {node.host}:{node.port}
                       </span>
-                      <span className={`service-resources ${diskHigh ? 'bad' : ''}`}>
+                      <span className={`service-resources ${resourcesHigh ? 'bad' : ''}`}>
                         {agentMetric ? (
                           <>
-                            <span>CPU {formatPercent(agentMetric.cpuPct)}</span>
-                            <span>RAM {formatPercent(agentMetric.memPct)}</span>
-                            <span>DISK {formatPercent(agentMetric.diskPct)}</span>
+                            <span className={cpuHigh ? 'metric-high' : ''}>
+                              CPU {formatPercent(agentMetric.cpuPct)}
+                            </span>
+                            <span className={memHigh ? 'metric-high' : ''}>
+                              RAM {formatPercent(agentMetric.memPct)}
+                            </span>
+                            <span className={diskHigh ? 'metric-high' : ''}>
+                              DISK {formatPercent(agentMetric.diskPct)}
+                            </span>
                           </>
                         ) : (
                           <span className="muted">Sin agente</span>
@@ -1263,7 +1332,11 @@ npm run dev`}</code>
               <ul className="guide-list">
                 <li>Define AGENT_KEY en el backend y reinicia.</li>
                 <li>Obtiene el NodeId en Administracion &gt; Nodos.</li>
-                <li>Alerta de disco: DISK_ALERT_PCT (default 90%).</li>
+                <li>
+                  Alertas CPU/RAM/Disco por nodo (defaults: CPU {DEFAULT_CPU_ALERT_PCT}% / RAM{' '}
+                  {DEFAULT_MEM_ALERT_PCT}% / Disco {DEFAULT_DISK_ALERT_PCT}%).
+                </li>
+                <li>Cooldown de alertas: {DEFAULT_ALERT_COOLDOWN_MIN} min.</li>
               </ul>
               <pre className="guide-code">
                 <code>{`# Windows (PowerShell)
@@ -1559,6 +1632,58 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
                       <option value="yes">Si</option>
                       <option value="no">No</option>
                     </select>
+                  </label>
+                </div>
+                <div className="form-row">
+                  <label>
+                    CPU alerta (%)
+                    <input
+                      type="number"
+                      value={form.cpuAlertPct}
+                      onChange={(event) =>
+                        setForm({ ...form, cpuAlertPct: Number(event.target.value) })
+                      }
+                      min={1}
+                      max={100}
+                    />
+                  </label>
+                  <label>
+                    RAM alerta (%)
+                    <input
+                      type="number"
+                      value={form.memAlertPct}
+                      onChange={(event) =>
+                        setForm({ ...form, memAlertPct: Number(event.target.value) })
+                      }
+                      min={1}
+                      max={100}
+                    />
+                  </label>
+                </div>
+                <div className="form-row">
+                  <label>
+                    Disco alerta (%)
+                    <input
+                      type="number"
+                      value={form.diskAlertPct}
+                      onChange={(event) =>
+                        setForm({ ...form, diskAlertPct: Number(event.target.value) })
+                      }
+                      min={1}
+                      max={100}
+                    />
+                  </label>
+                  <label>
+                    Cooldown (min)
+                    <input
+                      type="number"
+                      value={form.alertCooldownMin}
+                      onChange={(event) =>
+                        setForm({ ...form, alertCooldownMin: Number(event.target.value) })
+                      }
+                      min={0}
+                      max={1440}
+                    />
                   </label>
                 </div>
                 <div className="form-row">
@@ -2152,7 +2277,7 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
                   <h2>Metricas de agentes</h2>
                   <span className="panel-sub">CPU, RAM y disco reportados.</span>
                 </div>
-                <span className="panel-badge">Disco alerta {DISK_ALERT_PCT}%</span>
+                <span className="panel-badge">Umbrales por nodo</span>
               </div>
               <div className="admin-table">
                 <div className="admin-row wide head">
@@ -2162,20 +2287,42 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
                   <span>Disco</span>
                   <span>Actualizado</span>
                 </div>
-                {agentMetrics.map((metric) => (
-                  <div className="admin-row wide" key={metric.nodeId}>
-                    <div>
-                      <strong>{metric.nodeName}</strong>
-                      <div className="subtext">
-                        {metric.host}:{metric.port}
+                {agentMetrics.map((metric) => {
+                  const node = nodeById.get(metric.nodeId);
+                  const thresholds = getThresholds(node);
+                  const cpuHigh =
+                    metric.cpuPct !== null &&
+                    metric.cpuPct !== undefined &&
+                    metric.cpuPct >= thresholds.cpu;
+                  const memHigh =
+                    metric.memPct !== null &&
+                    metric.memPct !== undefined &&
+                    metric.memPct >= thresholds.mem;
+                  const diskHigh =
+                    metric.diskPct !== null &&
+                    metric.diskPct !== undefined &&
+                    metric.diskPct >= thresholds.disk;
+                  return (
+                    <div className="admin-row wide" key={metric.nodeId}>
+                      <div>
+                        <strong>{metric.nodeName}</strong>
+                        <div className="subtext">
+                          {metric.host}:{metric.port}
+                        </div>
                       </div>
+                      <span className={`mono ${cpuHigh ? 'metric-high' : ''}`}>
+                        {formatPercent(metric.cpuPct)}
+                      </span>
+                      <span className={`mono ${memHigh ? 'metric-high' : ''}`}>
+                        {formatPercent(metric.memPct)}
+                      </span>
+                      <span className={`mono ${diskHigh ? 'metric-high' : ''}`}>
+                        {formatPercent(metric.diskPct)}
+                      </span>
+                      <span className="mono">{formatDate(metric.collectedAt)}</span>
                     </div>
-                    <span className="mono">{formatPercent(metric.cpuPct)}</span>
-                    <span className="mono">{formatPercent(metric.memPct)}</span>
-                    <span className="mono">{formatPercent(metric.diskPct)}</span>
-                    <span className="mono">{formatDate(metric.collectedAt)}</span>
-                  </div>
-                ))}
+                  );
+                })}
                 {!agentMetrics.length && <div className="empty">No hay datos de agentes aun.</div>}
               </div>
             </div>
@@ -2211,15 +2358,18 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
                       </button>
                     ))}
                   </div>
+                  <span className="panel-badge">
+                    CPU {agentThresholds.cpu}% RAM {agentThresholds.mem}% DISK {agentThresholds.disk}%
+                  </span>
                 </div>
               </div>
               <div className="agent-series-grid">
-                <div className="agent-series-card">
+                <div className={`agent-series-card ${agentCpuHigh ? 'bad' : ''}`}>
                   <span className="label">CPU</span>
                   <Sparkline points={agentSeriesCpu} />
                   <span className="mono">{formatPercent(agentSeriesLatest?.cpuPct ?? null)}</span>
                 </div>
-                <div className="agent-series-card">
+                <div className={`agent-series-card ${agentMemHigh ? 'bad' : ''}`}>
                   <span className="label">RAM</span>
                   <Sparkline points={agentSeriesMem} />
                   <span className="mono">{formatPercent(agentSeriesLatest?.memPct ?? null)}</span>
