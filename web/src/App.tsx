@@ -96,7 +96,33 @@ type LoadState = {
   lastUpdated: string | null;
 };
 
-type View = 'dashboard' | 'admin' | 'guide';
+type View = 'dashboard' | 'admin' | 'guide' | 'monitor';
+
+function getViewFromPath(pathname: string): View {
+  if (pathname.startsWith('/admin')) {
+    return 'admin';
+  }
+  if (pathname.startsWith('/monitor')) {
+    return 'monitor';
+  }
+  if (pathname.startsWith('/guide')) {
+    return 'guide';
+  }
+  return 'dashboard';
+}
+
+function getPathForView(view: View) {
+  switch (view) {
+    case 'admin':
+      return '/admin';
+    case 'monitor':
+      return '/monitor';
+    case 'guide':
+      return '/guide';
+    default:
+      return '/';
+  }
+}
 
 type StatusTone = 'ok' | 'bad' | 'warn' | 'muted';
 
@@ -257,7 +283,7 @@ export default function App() {
   const [incidentOwnerDraft, setIncidentOwnerDraft] = useState('');
   const [incidentAckDraft, setIncidentAckDraft] = useState('');
   const [query, setQuery] = useState('');
-  const [view, setView] = useState<View>('dashboard');
+  const [view, setView] = useState<View>(() => getViewFromPath(window.location.pathname));
   const [adminTab, setAdminTab] = useState<
     'nodes' | 'alerts' | 'incidents' | 'reports' | 'audit' | 'agents'
   >('nodes');
@@ -302,6 +328,7 @@ export default function App() {
     error: null,
     lastUpdated: null
   });
+  const isMonitor = view === 'monitor';
 
   const stats = useMemo(() => {
     const total = nodes.length;
@@ -388,6 +415,16 @@ export default function App() {
     });
   }, [filteredNodes]);
 
+  const monitorNodes = useMemo(() => {
+    return [...nodes].sort((a, b) => {
+      const rank = getStatusRank(a) - getStatusRank(b);
+      if (rank !== 0) {
+        return rank;
+      }
+      return a.name.localeCompare(b.name);
+    });
+  }, [nodes]);
+
   const nodeById = useMemo(() => {
     return new Map(nodes.map((node) => [node.id, node]));
   }, [nodes]);
@@ -407,6 +444,22 @@ export default function App() {
   const groupMetricsSorted = useMemo(() => {
     return [...groupMetrics].sort((a, b) => a.groupName.localeCompare(b.groupName));
   }, [groupMetrics]);
+
+  const monitorIncidents = useMemo(() => {
+    return [...incidents]
+      .sort((a, b) => new Date(b.start_at).getTime() - new Date(a.start_at).getTime())
+      .slice(0, 6);
+  }, [incidents]);
+
+  const monitorAreas = useMemo(() => {
+    return [...areaMetrics]
+      .sort((a, b) => {
+        const aUptime = a.uptimePct ?? 0;
+        const bUptime = b.uptimePct ?? 0;
+        return aUptime - bUptime;
+      })
+      .slice(0, 5);
+  }, [areaMetrics]);
 
   const areaCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -552,11 +605,32 @@ export default function App() {
     }
   };
 
+  const navigateTo = (nextView: View) => {
+    setView(nextView);
+    const nextPath = getPathForView(nextView);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, '', nextPath);
+    }
+  };
+
   useEffect(() => {
     loadData();
     const timer = setInterval(loadData, 10000);
     return () => clearInterval(timer);
   }, [areaFilter, groupFilter, criticalityFilter]);
+
+  useEffect(() => {
+    const handlePop = () => setView(getViewFromPath(window.location.pathname));
+    window.addEventListener('popstate', handlePop);
+    return () => window.removeEventListener('popstate', handlePop);
+  }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle('monitor-body', isMonitor);
+    return () => {
+      document.body.classList.remove('monitor-body');
+    };
+  }, [isMonitor]);
 
   useEffect(() => {
     const init = async () => {
@@ -1046,12 +1120,13 @@ export default function App() {
   };
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-dot"></span>
-          <div>
-            <div className="brand-title">Moni-D</div>
+    <div className={`app ${isMonitor ? 'monitor-mode' : ''}`}>
+      {!isMonitor ? (
+        <header className="topbar">
+          <div className="brand">
+            <span className="brand-dot"></span>
+            <div>
+              <div className="brand-title">Moni-D</div>
             <div className="brand-sub">Monitoreo de servicios</div>
           </div>
         </div>
@@ -1084,20 +1159,26 @@ export default function App() {
         <div className="top-actions">
           <nav className="tabs">
             <button
+              className={`tab-btn ${view === 'monitor' ? 'active' : ''}`}
+              onClick={() => navigateTo('monitor')}
+            >
+              Monitor
+            </button>
+            <button
               className={`tab-btn ${view === 'dashboard' ? 'active' : ''}`}
-              onClick={() => setView('dashboard')}
+              onClick={() => navigateTo('dashboard')}
             >
               Dashboard
             </button>
             <button
               className={`tab-btn ${view === 'admin' ? 'active' : ''}`}
-              onClick={() => setView('admin')}
+              onClick={() => navigateTo('admin')}
             >
               Administracion
             </button>
             <button
               className={`tab-btn ${view === 'guide' ? 'active' : ''}`}
-              onClick={() => setView('guide')}
+              onClick={() => navigateTo('guide')}
             >
               Guia
             </button>
@@ -1113,8 +1194,189 @@ export default function App() {
           ) : null}
         </div>
       </header>
+      ) : null}
 
-      {view === 'dashboard' ? (
+      {view === 'monitor' ? (
+        <section className="monitor-view">
+          <div className="monitor-hero">
+            <div className="monitor-brand">
+              <span className="monitor-dot"></span>
+              <div>
+                <div className="monitor-title">Moni-D Monitor</div>
+                <div className="monitor-sub">Vista general de servicios en tiempo real.</div>
+              </div>
+            </div>
+            <div className="monitor-summary">
+              <span className={`monitor-pill ${statusSummary.tone}`}>{statusSummary.label}</span>
+              <span className="monitor-sync mono">
+                {state.loading
+                  ? 'Sincronizando...'
+                  : `Actualizado ${formatDate(state.lastUpdated)}`}
+              </span>
+            </div>
+            <div className="monitor-summary">
+              <span className={`monitor-pill ${openIncidents > 0 ? 'bad' : 'ok'}`}>
+                {openIncidents} incidentes abiertos
+              </span>
+            </div>
+          </div>
+
+          <div className="monitor-kpis">
+            <div className="monitor-kpi">
+              <span>Total servicios</span>
+              <strong>{stats.total}</strong>
+            </div>
+            <div className="monitor-kpi ok">
+              <span>Activos</span>
+              <strong>{stats.active}</strong>
+            </div>
+            <div className="monitor-kpi bad">
+              <span>Inactivos</span>
+              <strong>{stats.down}</strong>
+            </div>
+            <div className="monitor-kpi muted">
+              <span>Pausados</span>
+              <strong>{stats.paused}</strong>
+            </div>
+          </div>
+
+          {state.error ? <div className="monitor-alert">{state.error}</div> : null}
+
+          <div className="monitor-layout">
+            <div className="monitor-board">
+              {monitorNodes.map((node) => {
+                const status = getStatus(node);
+                const metrics = nodeMetricsMap.get(node.id);
+                const agentMetric = agentSummaryMap.get(node.id);
+                const area = normalizeLabel(node.area);
+                const criticality = node.criticality || 'MEDIUM';
+                const uptimePct = metrics?.uptimePct ?? null;
+                const avgLatency = metrics?.avgLatencyMs ?? null;
+                const thresholds = getThresholds(node);
+                const cpuHigh =
+                  agentMetric?.cpuPct !== null &&
+                  agentMetric?.cpuPct !== undefined &&
+                  agentMetric.cpuPct >= thresholds.cpu;
+                const memHigh =
+                  agentMetric?.memPct !== null &&
+                  agentMetric?.memPct !== undefined &&
+                  agentMetric.memPct >= thresholds.mem;
+                const diskHigh =
+                  agentMetric?.diskPct !== null &&
+                  agentMetric?.diskPct !== undefined &&
+                  agentMetric.diskPct >= thresholds.disk;
+                return (
+                  <div className={`monitor-card ${status.tone}`} key={node.id}>
+                    <div className="monitor-card-header">
+                      <div className="monitor-card-title">
+                        <span className={`monitor-dot ${status.tone}`}></span>
+                        <div>
+                          <div className="monitor-name">{node.name}</div>
+                          <div className="monitor-meta mono">
+                            {node.host}:{node.port} · {area}
+                          </div>
+                        </div>
+                      </div>
+                      <span className={`monitor-pill ${status.tone}`}>{status.label}</span>
+                    </div>
+                    <div className="monitor-chip-row">
+                      <span className={`monitor-chip ${criticality.toLowerCase()}`}>
+                        {getCriticalityLabel(criticality)}
+                      </span>
+                      <span className="monitor-chip">Uptime {formatPercent(uptimePct)}</span>
+                      <span className="monitor-chip">Lat {formatMs(avgLatency)}</span>
+                      {agentMetric ? (
+                        <>
+                          <span className={`monitor-chip ${cpuHigh ? 'bad' : ''}`}>
+                            CPU {formatPercent(agentMetric.cpuPct)}
+                          </span>
+                          <span className={`monitor-chip ${memHigh ? 'bad' : ''}`}>
+                            RAM {formatPercent(agentMetric.memPct)}
+                          </span>
+                          <span className={`monitor-chip ${diskHigh ? 'bad' : ''}`}>
+                            DISK {formatPercent(agentMetric.diskPct)}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="monitor-chip muted">Sin agente</span>
+                      )}
+                    </div>
+                    <div className="monitor-foot mono">Ultimo check {formatDate(node.lastCheckAt)}</div>
+                  </div>
+                );
+              })}
+              {!monitorNodes.length && <div className="monitor-empty">No hay servicios.</div>}
+            </div>
+
+            <aside className="monitor-side">
+              <div className="monitor-panel">
+                <div className="monitor-panel-header">
+                  <div>
+                    <h3>Incidentes recientes</h3>
+                    <span className="monitor-panel-sub">Ultimos 90 dias</span>
+                  </div>
+                  <span className={`monitor-pill ${openIncidents > 0 ? 'bad' : 'ok'}`}>
+                    {openIncidents} abiertos
+                  </span>
+                </div>
+                <div className="monitor-panel-body">
+                  {monitorIncidents.map((incident) => {
+                    const active = !incident.end_at;
+                    return (
+                      <div className="monitor-incident" key={incident.id}>
+                        <div>
+                          <div className="monitor-incident-title">{incident.node_name}</div>
+                          <div className="monitor-incident-meta">
+                            Inicio {formatDate(incident.start_at)}
+                            {incident.end_at ? ` · Fin ${formatDate(incident.end_at)}` : ' · En curso'}
+                          </div>
+                        </div>
+                        <div className="monitor-incident-status">
+                          <span className={`monitor-pill ${active ? 'bad' : 'ok'}`}>
+                            {active ? 'Abierto' : 'Cerrado'}
+                          </span>
+                          <span className="mono">{formatDuration(incident.duration_sec)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {!monitorIncidents.length && (
+                    <div className="monitor-empty">No hay incidentes recientes.</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="monitor-panel">
+                <div className="monitor-panel-header">
+                  <div>
+                    <h3>Uptime por area</h3>
+                    <span className="monitor-panel-sub">Ultimos {METRICS_DAYS} dias</span>
+                  </div>
+                </div>
+                <div className="monitor-panel-body">
+                  {monitorAreas.map((metric) => {
+                    const area = normalizeLabel(metric.area);
+                    return (
+                      <div className="monitor-area-row" key={area}>
+                        <div>
+                          <div className="monitor-area-name">{area}</div>
+                          <div className="monitor-area-meta">
+                            Lat {formatMs(metric.avgLatencyMs)}
+                          </div>
+                        </div>
+                        <div className="monitor-area-metric">{formatPercent(metric.uptimePct)}</div>
+                      </div>
+                    );
+                  })}
+                  {!monitorAreas.length && (
+                    <div className="monitor-empty">Sin metricas por area.</div>
+                  )}
+                </div>
+              </div>
+            </aside>
+          </div>
+        </section>
+      ) : view === 'dashboard' ? (
         <section className="dashboard">
           <div className="panel services-panel">
             <div className="panel-header">
@@ -1437,8 +1699,8 @@ export default function App() {
               <div className="guide-hero-text">
                 <p>
                   Moni-D monitorea servicios TCP por IP y puerto, guarda historial en Postgres y
-                  dispara alertas cuando un nodo cae. El dashboard es abierto y la administracion
-                  requiere login.
+                  dispara alertas cuando un nodo cae. La vista monitor es abierta y la
+                  administracion requiere login.
                 </p>
                 <div className="guide-pill-row">
                   <span className="status-pill ok">Activo</span>
@@ -1448,8 +1710,12 @@ export default function App() {
               </div>
               <div className="guide-hero-meta">
                 <div className="guide-meta-row">
-                  <span className="label">Dashboard</span>
-                  <span className="mono">http://localhost:5173</span>
+                  <span className="label">Monitor</span>
+                  <span className="mono">http://localhost:5173/monitor</span>
+                </div>
+                <div className="guide-meta-row">
+                  <span className="label">Admin</span>
+                  <span className="mono">http://localhost:5173/admin</span>
                 </div>
                 <div className="guide-meta-row">
                   <span className="label">API</span>
