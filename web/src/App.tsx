@@ -1012,8 +1012,10 @@ export default function App() {
         const now = ctx.currentTime;
         gain.gain.cancelScheduledValues(now);
         gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(0.22, now + 0.02);
-        gain.gain.linearRampToValueAtTime(0, now + 0.25);
+        gain.gain.linearRampToValueAtTime(0.35, now + 0.02);
+        gain.gain.linearRampToValueAtTime(0, now + 0.28);
+        osc.frequency.setValueAtTime(740, now);
+        osc.frequency.linearRampToValueAtTime(980, now + 0.28);
       };
       beep();
       alarmIntervalRef.current = window.setInterval(beep, 900);
@@ -1033,6 +1035,15 @@ export default function App() {
     if (alarmActive) {
       await startAlarmAudio();
     }
+  };
+
+  const handleTestAlarmAudio = async () => {
+    await startAlarmAudio();
+    window.setTimeout(() => {
+      if (!audioEnabled || !alarmActive) {
+        stopAlarmAudio();
+      }
+    }, 1500);
   };
 
   const handleChannelEdit = (channel: AlertChannel) => {
@@ -1410,7 +1421,7 @@ export default function App() {
                   </span>
                 </div>
               </div>
-              <div className="monitor-alerts">
+              <div className={`monitor-alerts ${alarmActive ? 'alarm' : ''}`}>
                 <span className={`monitor-pill ${openIncidents > 0 ? 'bad' : 'ok'}`}>
                   {openIncidents} incidentes abiertos
                 </span>
@@ -1425,6 +1436,9 @@ export default function App() {
                   type="button"
                 >
                   {audioEnabled ? 'Silenciar alarma' : 'Activar alarma'}
+                </button>
+                <button className="monitor-audio test" onClick={handleTestAlarmAudio} type="button">
+                  Probar sonido
                 </button>
                 {audioBlocked ? (
                   <span className="monitor-audio-note">Permitir sonido en el navegador</span>
