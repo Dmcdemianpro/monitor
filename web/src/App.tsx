@@ -62,7 +62,7 @@ const DEFAULT_MEM_ALERT_PCT = Number.parseInt(import.meta.env.VITE_MEM_ALERT_PCT
 const DEFAULT_DISK_ALERT_PCT =
   Number.parseInt(import.meta.env.VITE_DISK_ALERT_PCT || '90', 10) || 90;
 const DEFAULT_ALERT_COOLDOWN_MIN =
-  Number.parseInt(import.meta.env.VITE_ALERT_COOLDOWN_MIN || '30', 10) || 30;
+  Number.parseInt(import.meta.env.VITE_ALERT_COOLDOWN_MIN || '10', 10) || 10;
 
 const emptyForm = {
   id: 0,
@@ -1038,9 +1038,10 @@ export default function App() {
   };
 
   const handleTestAlarmAudio = async () => {
+    setAudioEnabled(true);
     await startAlarmAudio();
     window.setTimeout(() => {
-      if (!audioEnabled || !alarmActive) {
+      if (!alarmActive) {
         stopAlarmAudio();
       }
     }, 1500);

@@ -143,21 +143,41 @@ async function dispatchAlert(params: {
   level?: number | null;
   channels: AlertChannel[];
   cooldownMin: number;
+  repeatable?: boolean;
+  force?: boolean;
   logger: Logger;
 }) {
-  const { type, node, incidentId, recipients, error, level, channels, cooldownMin, logger } = params;
+  const {
+    type,
+    node,
+    incidentId,
+    recipients,
+    error,
+    level,
+    channels,
+    cooldownMin,
+    repeatable,
+    force,
+    logger
+  } = params;
   const payload = buildAlertPayload({ type, level, node, error });
+  const allowRepeat = Boolean(repeatable);
+  const skipRecent = Boolean(force);
 
   if (recipients.length) {
-    const recent = await hasRecentAlertEvent({
-      nodeId: node.id,
-      type,
-      level: level ?? null,
-      channelId: null,
-      windowMin: cooldownMin
-    });
+    const recent = skipRecent
+      ? false
+      : await hasRecentAlertEvent({
+          nodeId: node.id,
+          type,
+          level: level ?? null,
+          channelId: null,
+          windowMin: cooldownMin
+        });
     if (!recent) {
-      const exists = await hasAlertEvent({ incidentId, type, level, channelId: null });
+      const exists = allowRepeat
+        ? false
+        : await hasAlertEvent({ incidentId, type, level, channelId: null });
       if (!exists) {
         try {
           const { subject } = await sendAlert({
@@ -192,17 +212,21 @@ async function dispatchAlert(params: {
     if (!channel.enabled) {
       continue;
     }
-    const recent = await hasRecentAlertEvent({
-      nodeId: node.id,
-      type,
-      level: level ?? null,
-      channelId: channel.id,
-      windowMin: cooldownMin
-    });
+    const recent = skipRecent
+      ? false
+      : await hasRecentAlertEvent({
+          nodeId: node.id,
+          type,
+          level: level ?? null,
+          channelId: channel.id,
+          windowMin: cooldownMin
+        });
     if (recent) {
       continue;
     }
-    const exists = await hasAlertEvent({ incidentId, type, level, channelId: channel.id });
+    const exists = allowRepeat
+      ? false
+      : await hasAlertEvent({ incidentId, type, level, channelId: channel.id });
     if (exists) {
       continue;
     }
@@ -365,6 +389,8 @@ class NodeRunner {
             error,
             channels,
             cooldownMin,
+            repeatable: true,
+            force: true,
             logger: this.logger
           });
         }
@@ -378,6 +404,21 @@ class NodeRunner {
             recipients,
             channels,
             cooldownMin,
+            logger: this.logger
+          });
+        }
+
+        if (status === 'FAILURE' && prevStatus === 'FAILURE') {
+          const recipients = await getRecipientsForNode(this.node.id);
+          await dispatchAlert({
+            type: 'lost',
+            node: this.node,
+            incidentId,
+            recipients,
+            error,
+            channels,
+            cooldownMin,
+            repeatable: true,
             logger: this.logger
           });
         }

@@ -39,7 +39,7 @@ const schema = z.object({
   CPU_ALERT_PCT: z.coerce.number().int().min(1).max(100).default(85),
   MEM_ALERT_PCT: z.coerce.number().int().min(1).max(100).default(90),
   DISK_ALERT_PCT: z.coerce.number().int().min(1).max(100).default(90),
-  ALERT_COOLDOWN_MIN: z.coerce.number().int().min(0).max(1440).default(30),
+  ALERT_COOLDOWN_MIN: z.coerce.number().int().min(0).max(1440).default(10),
 
   AGENT_KEY: z.string().optional().default('')
 });
