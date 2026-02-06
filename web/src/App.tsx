@@ -158,6 +158,44 @@ function formatDate(value: string | null | undefined) {
   return date.toLocaleString();
 }
 
+function formatClockTime(date: Date) {
+  return date.toLocaleTimeString('es-CL', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+}
+
+function formatClockDate(date: Date) {
+  return date.toLocaleDateString('es-CL', {
+    weekday: 'short',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  });
+}
+
+function formatSince(value: string | null | undefined, now: Date) {
+  if (!value) {
+    return '-';
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return '-';
+  }
+  const diffSec = Math.max(0, Math.round((now.getTime() - parsed.getTime()) / 1000));
+  if (diffSec < 60) {
+    return `hace ${diffSec}s`;
+  }
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) {
+    return `hace ${diffMin}m`;
+  }
+  const diffHour = Math.floor(diffMin / 60);
+  return `hace ${diffHour}h`;
+}
+
 function formatDuration(seconds: number) {
   if (!Number.isFinite(seconds)) {
     return '-';
@@ -322,6 +360,7 @@ export default function App() {
   const [groupFilter, setGroupFilter] = useState('all');
   const [criticalityFilter, setCriticalityFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState('all');
+  const [clockNow, setClockNow] = useState(() => new Date());
   const [metricView, setMetricView] = useState<'areas' | 'groups'>('areas');
   const [state, setState] = useState<LoadState>({
     loading: true,
@@ -347,6 +386,14 @@ export default function App() {
     }
     return { label: 'Todo OK', tone: 'ok' as StatusTone };
   }, [stats]);
+
+  const monitorClock = useMemo(() => {
+    return { time: formatClockTime(clockNow), date: formatClockDate(clockNow) };
+  }, [clockNow]);
+
+  const monitorLastUpdate = useMemo(() => {
+    return formatSince(state.lastUpdated, clockNow);
+  }, [state.lastUpdated, clockNow]);
 
   const openIncidents = useMemo(() => {
     return incidents.filter((incident) => !incident.end_at).length;
@@ -630,6 +677,15 @@ export default function App() {
     return () => {
       document.body.classList.remove('monitor-body');
     };
+  }, [isMonitor]);
+
+  useEffect(() => {
+    if (!isMonitor) {
+      return;
+    }
+    setClockNow(new Date());
+    const timer = setInterval(() => setClockNow(new Date()), 1000);
+    return () => clearInterval(timer);
   }, [isMonitor]);
 
   useEffect(() => {
@@ -1209,15 +1265,21 @@ export default function App() {
             <div className="monitor-summary">
               <span className={`monitor-pill ${statusSummary.tone}`}>{statusSummary.label}</span>
               <span className="monitor-sync mono">
-                {state.loading
-                  ? 'Sincronizando...'
-                  : `Actualizado ${formatDate(state.lastUpdated)}`}
+                {state.loading ? 'Sincronizando...' : `Actualizado ${monitorLastUpdate}`}
               </span>
             </div>
             <div className="monitor-summary">
               <span className={`monitor-pill ${openIncidents > 0 ? 'bad' : 'ok'}`}>
                 {openIncidents} incidentes abiertos
               </span>
+            </div>
+            <div className="monitor-clock">
+              <div className="monitor-live">
+                <span></span>
+                En vivo
+              </div>
+              <div className="monitor-clock-time mono">{monitorClock.time}</div>
+              <div className="monitor-clock-date">{monitorClock.date}</div>
             </div>
           </div>
 
@@ -1279,11 +1341,21 @@ export default function App() {
                       </div>
                       <span className={`monitor-pill ${status.tone}`}>{status.label}</span>
                     </div>
+                    <div className="monitor-card-body">
+                      <div className="monitor-uptime">
+                        <span className="monitor-uptime-label">Uptime 30d</span>
+                        <div className="monitor-uptime-bar">
+                          <span style={{ width: `${uptimePct ?? 0}%` }}></span>
+                        </div>
+                        <span className="monitor-uptime-value mono">
+                          {formatPercent(uptimePct)}
+                        </span>
+                      </div>
+                    </div>
                     <div className="monitor-chip-row">
                       <span className={`monitor-chip ${criticality.toLowerCase()}`}>
                         {getCriticalityLabel(criticality)}
                       </span>
-                      <span className="monitor-chip">Uptime {formatPercent(uptimePct)}</span>
                       <span className="monitor-chip">Lat {formatMs(avgLatency)}</span>
                       {agentMetric ? (
                         <>
@@ -1301,7 +1373,9 @@ export default function App() {
                         <span className="monitor-chip muted">Sin agente</span>
                       )}
                     </div>
-                    <div className="monitor-foot mono">Ultimo check {formatDate(node.lastCheckAt)}</div>
+                    <div className="monitor-foot mono">
+                      Ultimo check {formatSince(node.lastCheckAt, clockNow)}
+                    </div>
                   </div>
                 );
               })}

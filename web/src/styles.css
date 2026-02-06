@@ -1104,7 +1104,7 @@ body.monitor-body::before {
 
 .monitor-hero {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(220px, 1.1fr) minmax(160px, 0.8fr) minmax(160px, 0.7fr) minmax(170px, 0.7fr);
   gap: 16px;
   align-items: center;
   padding: 18px 22px;
@@ -1151,6 +1151,45 @@ body.monitor-body::before {
 .monitor-sync {
   font-size: 0.75rem;
   opacity: 0.85;
+}
+
+.monitor-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  text-align: right;
+}
+
+.monitor-clock-time {
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.monitor-clock-date {
+  font-size: 0.75rem;
+  opacity: 0.8;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.monitor-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+}
+
+.monitor-live span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #38bdf8;
+  box-shadow: 0 0 0 6px rgba(56, 189, 248, 0.2);
+  animation: monitor-live 1.6s ease-in-out infinite;
 }
 
 .monitor-kpis {
@@ -1213,7 +1252,7 @@ body.monitor-body::before {
 .monitor-board {
   min-height: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 12px;
   overflow-y: auto;
   padding-right: 4px;
@@ -1228,10 +1267,26 @@ body.monitor-body::before {
   flex-direction: column;
   gap: 10px;
   box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+  position: relative;
+  overflow: hidden;
+}
+
+.monitor-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 3px;
+  width: 100%;
+  background: linear-gradient(120deg, rgba(15, 23, 42, 0.2), transparent);
 }
 
 .monitor-card.ok {
   border-color: rgba(22, 163, 74, 0.3);
+}
+
+.monitor-card.ok::before {
+  background: linear-gradient(120deg, rgba(22, 163, 74, 0.7), transparent);
 }
 
 .monitor-card.bad {
@@ -1240,14 +1295,26 @@ body.monitor-body::before {
   animation: monitor-pulse 2.2s ease-in-out infinite;
 }
 
+.monitor-card.bad::before {
+  background: linear-gradient(120deg, rgba(239, 68, 68, 0.9), transparent);
+}
+
 .monitor-card.warn {
   border-color: rgba(245, 158, 11, 0.4);
   background: linear-gradient(140deg, rgba(245, 158, 11, 0.1), #ffffff 55%);
 }
 
+.monitor-card.warn::before {
+  background: linear-gradient(120deg, rgba(245, 158, 11, 0.8), transparent);
+}
+
 .monitor-card.muted {
   border-color: rgba(148, 163, 184, 0.3);
   background: rgba(148, 163, 184, 0.08);
+}
+
+.monitor-card.muted::before {
+  background: linear-gradient(120deg, rgba(148, 163, 184, 0.8), transparent);
 }
 
 .monitor-card-header {
@@ -1293,6 +1360,50 @@ body.monitor-body::before {
 .monitor-meta {
   font-size: 0.7rem;
   color: var(--muted);
+}
+
+.monitor-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.monitor-uptime {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.monitor-uptime-label {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.6rem;
+}
+
+.monitor-uptime-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.2);
+  overflow: hidden;
+}
+
+.monitor-uptime-bar span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0%;
+  background: linear-gradient(120deg, #0ea5e9, #14b8a6);
+  border-radius: 999px;
+}
+
+.monitor-uptime-value {
+  font-weight: 600;
+  color: var(--text);
 }
 
 .monitor-chip-row {
@@ -1500,6 +1611,21 @@ body.monitor-body::before {
   }
 }
 
+@keyframes monitor-live {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.9);
+    opacity: 0.6;
+  }
+}
+
 @media (max-width: 1200px) {
   .topbar {
     grid-template-columns: 1fr;
@@ -1557,6 +1683,11 @@ body.monitor-body::before {
 
   .monitor-layout {
     grid-template-columns: 1fr;
+  }
+
+  .monitor-clock {
+    align-items: flex-start;
+    text-align: left;
   }
 }
 
