@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   acknowledgeIncident,
   addIncidentNote,
@@ -361,6 +361,12 @@ export default function App() {
   const [criticalityFilter, setCriticalityFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState('all');
   const [clockNow, setClockNow] = useState(() => new Date());
+  const [audioEnabled, setAudioEnabled] = useState(false);
+  const [audioBlocked, setAudioBlocked] = useState(false);
+  const alarmCtxRef = useRef<AudioContext | null>(null);
+  const alarmOscRef = useRef<OscillatorNode | null>(null);
+  const alarmGainRef = useRef<GainNode | null>(null);
+  const alarmIntervalRef = useRef<number | null>(null);
   const [metricView, setMetricView] = useState<'areas' | 'groups'>('areas');
   const [state, setState] = useState<LoadState>({
     loading: true,
@@ -405,6 +411,10 @@ export default function App() {
   const openIncidents = useMemo(() => {
     return incidents.filter((incident) => !incident.end_at).length;
   }, [incidents]);
+
+  const alarmActive = useMemo(() => {
+    return stats.down > 0 || openIncidents > 0;
+  }, [stats.down, openIncidents]);
 
   const areaOptions = useMemo(() => {
     const values = nodes.map((node) => normalizeLabel(node.area));
@@ -681,10 +691,12 @@ export default function App() {
 
   useEffect(() => {
     document.body.classList.toggle('monitor-body', isMonitor);
+    document.body.classList.toggle('monitor-alerting', isMonitor && alarmActive);
     return () => {
       document.body.classList.remove('monitor-body');
+      document.body.classList.remove('monitor-alerting');
     };
-  }, [isMonitor]);
+  }, [isMonitor, alarmActive]);
 
   useEffect(() => {
     if (!isMonitor) {
@@ -694,6 +706,30 @@ export default function App() {
     const timer = setInterval(() => setClockNow(new Date()), 1000);
     return () => clearInterval(timer);
   }, [isMonitor]);
+
+  useEffect(() => {
+    if (!isMonitor) {
+      stopAlarmAudio();
+      setAudioEnabled(false);
+      setAudioBlocked(false);
+      return;
+    }
+    if (audioEnabled && alarmActive) {
+      void startAlarmAudio();
+    } else {
+      stopAlarmAudio();
+    }
+  }, [audioEnabled, alarmActive, isMonitor]);
+
+  useEffect(() => {
+    return () => {
+      stopAlarmAudio();
+      if (alarmCtxRef.current) {
+        alarmCtxRef.current.close().catch(() => undefined);
+        alarmCtxRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const init = async () => {
@@ -909,6 +945,93 @@ export default function App() {
       await loadAdminData();
     } catch (err: any) {
       setAuthError(err?.message || 'No se pudo guardar el canal');
+    }
+  };
+
+  const stopAlarmAudio = () => {
+    if (alarmIntervalRef.current) {
+      window.clearInterval(alarmIntervalRef.current);
+      alarmIntervalRef.current = null;
+    }
+    const ctx = alarmCtxRef.current;
+    const osc = alarmOscRef.current;
+    const gain = alarmGainRef.current;
+    if (gain && ctx) {
+      try {
+        gain.gain.cancelScheduledValues(ctx.currentTime);
+        gain.gain.setValueAtTime(0, ctx.currentTime);
+      } catch {
+        // noop
+      }
+    }
+    if (osc) {
+      try {
+        osc.stop();
+      } catch {
+        // noop
+      }
+      osc.disconnect();
+      alarmOscRef.current = null;
+    }
+    if (gain) {
+      gain.disconnect();
+      alarmGainRef.current = null;
+    }
+  };
+
+  const startAlarmAudio = async () => {
+    try {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) {
+        return;
+      }
+      if (!alarmCtxRef.current) {
+        alarmCtxRef.current = new AudioCtx();
+      }
+      const ctx = alarmCtxRef.current;
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+      if (alarmOscRef.current) {
+        return;
+      }
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      gain.connect(ctx.destination);
+      const osc = ctx.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = 880;
+      osc.connect(gain);
+      osc.start();
+      alarmOscRef.current = osc;
+      alarmGainRef.current = gain;
+
+      const beep = () => {
+        const now = ctx.currentTime;
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.22, now + 0.02);
+        gain.gain.linearRampToValueAtTime(0, now + 0.25);
+      };
+      beep();
+      alarmIntervalRef.current = window.setInterval(beep, 900);
+      setAudioBlocked(false);
+    } catch {
+      setAudioBlocked(true);
+    }
+  };
+
+  const handleToggleAlarmAudio = async () => {
+    if (audioEnabled) {
+      setAudioEnabled(false);
+      stopAlarmAudio();
+      return;
+    }
+    setAudioEnabled(true);
+    if (alarmActive) {
+      await startAlarmAudio();
     }
   };
 
@@ -1294,6 +1417,18 @@ export default function App() {
                 <span className={`monitor-pill ${stats.down > 0 ? 'bad' : 'ok'}`}>
                   {stats.down} inactivos
                 </span>
+                <button
+                  className={`monitor-audio ${audioEnabled ? 'active' : ''} ${
+                    alarmActive ? 'alarm' : ''
+                  }`}
+                  onClick={handleToggleAlarmAudio}
+                  type="button"
+                >
+                  {audioEnabled ? 'Silenciar alarma' : 'Activar alarma'}
+                </button>
+                {audioBlocked ? (
+                  <span className="monitor-audio-note">Permitir sonido en el navegador</span>
+                ) : null}
               </div>
             </div>
             <div className="monitor-clock">

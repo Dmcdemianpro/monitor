@@ -1214,6 +1214,7 @@ body.monitor-body::before {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
 }
 
 .monitor-clock {
@@ -1380,9 +1381,11 @@ body.monitor-body::before {
 }
 
 .monitor-card.bad {
-  border-color: rgba(239, 68, 68, 0.4);
-  background: linear-gradient(140deg, rgba(239, 68, 68, 0.12), #ffffff 55%);
+  border-color: rgba(239, 68, 68, 0.7);
+  border-width: 2px;
+  background: linear-gradient(140deg, rgba(239, 68, 68, 0.28), #ffffff 60%);
   animation: monitor-pulse 2.2s ease-in-out infinite;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.45), 0 18px 30px rgba(239, 68, 68, 0.25);
 }
 
 .monitor-card.bad::before {
@@ -1555,6 +1558,51 @@ body.monitor-body::before {
   border: 1px solid transparent;
   color: #f8fafc;
   background: rgba(2, 6, 23, 0.65);
+  font-weight: 700;
+}
+
+.monitor-audio {
+  border-radius: 999px;
+  padding: 6px 12px;
+  border: 1px solid rgba(248, 250, 252, 0.25);
+  background: rgba(2, 6, 23, 0.65);
+  color: #f8fafc;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+}
+
+.monitor-audio.active {
+  background: rgba(14, 116, 144, 0.7);
+  border-color: rgba(56, 189, 248, 0.5);
+}
+
+.monitor-audio.alarm {
+  background: rgba(239, 68, 68, 0.35);
+  border-color: rgba(239, 68, 68, 0.55);
+  animation: monitor-audio-pulse 1.4s ease-in-out infinite;
+}
+
+.monitor-audio-note {
+  font-size: 0.65rem;
+  color: rgba(248, 250, 252, 0.8);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+body.monitor-alerting .monitor-hero {
+  background: linear-gradient(120deg, #450a0a 0%, #b91c1c 45%, #ef4444 100%);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.55), 0 20px 40px rgba(239, 68, 68, 0.45);
+}
+
+body.monitor-alerting .monitor-health-bar span {
+  background: linear-gradient(120deg, #ef4444, #f97316);
+}
+
+body.monitor-alerting .monitor-live span {
+  background: #f97316;
+  box-shadow: 0 0 0 6px rgba(249, 115, 22, 0.28);
 }
 
 .monitor-hero .monitor-pill {
@@ -1695,13 +1743,25 @@ body.monitor-body::before {
 
 @keyframes monitor-pulse {
   0% {
-    box-shadow: 0 0 0 rgba(239, 68, 68, 0.25);
+    box-shadow: 0 0 0 rgba(239, 68, 68, 0.2), 0 18px 30px rgba(239, 68, 68, 0.2);
   }
   50% {
-    box-shadow: 0 0 18px rgba(239, 68, 68, 0.35);
+    box-shadow: 0 0 24px rgba(239, 68, 68, 0.55), 0 22px 34px rgba(239, 68, 68, 0.35);
   }
   100% {
-    box-shadow: 0 0 0 rgba(239, 68, 68, 0.2);
+    box-shadow: 0 0 0 rgba(239, 68, 68, 0.2), 0 18px 30px rgba(239, 68, 68, 0.2);
+  }
+}
+
+@keyframes monitor-audio-pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
   }
 }
 
