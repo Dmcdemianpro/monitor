@@ -18,6 +18,15 @@ const transport = nodemailer.createTransport({
   }
 });
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function buildSubject(type: AlertType, node: NodeConfig, level?: number) {
   if (type === 'lost') {
     return `Moni-D - Alerta de servicio: ${node.name} no disponible`;
@@ -33,8 +42,12 @@ function renderRows(rows: Array<[string, string]>) {
     .map(
       ([label, value]) =>
         '<tr>' +
-        `<td style="padding: 6px 10px; font-weight: 600; color: #0f172a;">${label}</td>` +
-        `<td style="padding: 6px 10px; color: #0f172a;">${value}</td>` +
+        `<td style="padding: 7px 10px; font-weight: 600; color: #0f172a; border-bottom: 1px solid #e2e8f0; width: 32%;">${escapeHtml(
+          label
+        )}</td>` +
+        `<td style="padding: 7px 10px; color: #0f172a; border-bottom: 1px solid #e2e8f0;">${escapeHtml(
+          value
+        )}</td>` +
         '</tr>'
     )
     .join('');
@@ -42,16 +55,24 @@ function renderRows(rows: Array<[string, string]>) {
 
 function wrapCard(title: string, statusLabel: string, statusColor: string, bodyHtml: string) {
   return (
-    '<div style="background:#f8fafc;padding:24px;font-family:Verdana,sans-serif;">' +
-    '<div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">' +
-    `<div style="padding:16px 20px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;">` +
-    `<div style="font-size:16px;font-weight:700;color:#0f172a;">${title}</div>` +
-    `<div style="padding:6px 10px;border-radius:999px;background:${statusColor};color:#ffffff;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;">${statusLabel}</div>` +
-    `</div>` +
-    `<div style="padding:18px 20px;">${bodyHtml}</div>` +
-    '</div>' +
-    '<p style="margin:12px auto 0;max-width:640px;color:#64748b;font-size:12px;text-align:center;">Moni-D monitoreo automatico</p>' +
-    '</div>'
+    '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f1f5f9;padding:24px 0;font-family:Verdana,sans-serif;">' +
+    '<tr><td align="center">' +
+    '<table role="presentation" width="640" cellspacing="0" cellpadding="0" style="background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">' +
+    '<tr><td style="padding:18px 22px;border-bottom:1px solid #e2e8f0;">' +
+    '<table role="presentation" width="100%" cellspacing="0" cellpadding="0">' +
+    '<tr>' +
+    `<td style="font-size:16px;font-weight:700;color:#0f172a;">${escapeHtml(title)}</td>` +
+    `<td align="right"><span style="padding:6px 10px;border-radius:999px;background:${statusColor};color:#ffffff;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">${escapeHtml(
+      statusLabel
+    )}</span></td>` +
+    '</tr>' +
+    '</table>' +
+    '<div style="margin-top:4px;color:#64748b;font-size:12px;">Monitoreo de servicios</div>' +
+    '</td></tr>' +
+    `<tr><td style="padding:20px 22px;">${bodyHtml}</td></tr>` +
+    '</table>' +
+    '<div style="max-width:640px;color:#64748b;font-size:12px;text-align:center;margin:12px auto 0;">Mensaje automatico generado por Moni-D.</div>' +
+    '</td></tr></table>'
   );
 }
 
@@ -75,22 +96,39 @@ function buildHtml(
       : type === 'escalation'
         ? 'Escalamiento del incidente en curso.'
         : 'Servicio recuperado y operativo.';
+  const summaryRows: Array<[string, string]> = [
+    ['Estado actual', statusLabel],
+    ['Fecha/Hora', formatDateTime(whenIso)]
+  ];
+  if (type === 'escalation') {
+    summaryRows.push(['Nivel de escalamiento', `L${level ?? 1}`]);
+  }
   const rows: Array<[string, string]> = [
     ['Servicio', node.name],
     ['Host', `${node.host}:${node.port}`],
     ['Area', node.area || '-'],
     ['Grupo', node.groupName || '-'],
     ['Criticidad', node.criticality || '-'],
-    ['Tags', node.tags?.length ? node.tags.join(', ') : '-'],
-    ['Fecha/Hora', whenIso]
+    ['Tags', node.tags?.length ? node.tags.join(', ') : '-']
   ];
-  if (error) {
-    rows.push(['Error', error]);
-  }
+
+  const errorBlock = error
+    ? `<div style="margin-top:12px;padding:10px 12px;border-left:3px solid ${statusColor};background:#f8fafc;color:#475569;font-size:12px;">` +
+      `<strong style="color:#0f172a;">Detalle tecnico:</strong> ${escapeHtml(error)}` +
+      '</div>'
+    : '';
 
   const body =
-    `<p style="margin:0 0 12px;color:#475569;">${header}</p>` +
-    `<table style="width:100%;border-collapse:collapse;">${renderRows(rows)}</table>`;
+    `<p style="margin:0 0 12px;color:#334155;font-size:13px;">${header}</p>` +
+    '<div style="margin-bottom:14px;">' +
+    '<div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:6px;">Resumen del evento</div>' +
+    `<table style="width:100%;border-collapse:collapse;">${renderRows(summaryRows)}</table>` +
+    '</div>' +
+    '<div style="margin-bottom:14px;">' +
+    '<div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:6px;">Detalle del servicio</div>' +
+    `<table style="width:100%;border-collapse:collapse;">${renderRows(rows)}</table>` +
+    '</div>' +
+    errorBlock;
 
   return wrapCard('Moni-D - Alerta de servicio', statusLabel, statusColor, body);
 }
@@ -156,19 +194,30 @@ function buildMetricHtml(params: {
     status === 'recovered'
       ? `Uso de ${label} normalizado.`
       : `Uso de ${label} sobre el umbral.`;
+  const summaryRows: Array<[string, string]> = [
+    ['Estado actual', statusLabel],
+    ['Metrica', label],
+    [`Uso ${label}`, `${value.toFixed(1)}%`],
+    ['Umbral', `${threshold}%`],
+    ['Fecha/Hora', formatDateTime(new Date().toISOString())]
+  ];
   const rows: Array<[string, string]> = [
     ['Servicio', node.name],
     ['Host', `${node.host}:${node.port}`],
     ['Area', node.area || '-'],
     ['Grupo', node.groupName || '-'],
-    ['Criticidad', node.criticality || '-'],
-    [`Uso ${label}`, `${value.toFixed(1)}%`],
-    ['Umbral', `${threshold}%`],
-    ['Fecha/Hora', new Date().toISOString()]
+    ['Criticidad', node.criticality || '-']
   ];
   const body =
-    `<p style="margin:0 0 12px;color:#475569;">${header}</p>` +
-    `<table style="width:100%;border-collapse:collapse;">${renderRows(rows)}</table>`;
+    `<p style="margin:0 0 12px;color:#334155;font-size:13px;">${header}</p>` +
+    '<div style="margin-bottom:14px;">' +
+    '<div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:6px;">Resumen del evento</div>' +
+    `<table style="width:100%;border-collapse:collapse;">${renderRows(summaryRows)}</table>` +
+    '</div>' +
+    '<div style="margin-bottom:14px;">' +
+    '<div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:6px;">Detalle del servicio</div>' +
+    `<table style="width:100%;border-collapse:collapse;">${renderRows(rows)}</table>` +
+    '</div>';
   return wrapCard(`Moni-D - Alerta de ${label}`, statusLabel, statusColor, body);
 }
 
@@ -247,56 +296,58 @@ export async function sendWeeklyReport(params: {
   const rows = incidents
     .map((incident) => {
       const status = incident.end_at ? 'CERRADO' : 'ABIERTO';
+      const startAt = formatDateTime(incident.start_at);
+      const endAt = incident.end_at ? formatDateTime(incident.end_at) : '-';
       return (
         '<tr>' +
-        `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${incident.node_name}</td>` +
-        `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${incident.start_at}</td>` +
-        `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${incident.end_at || '-'}</td>` +
-        `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${status}</td>` +
+        `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${escapeHtml(incident.node_name)}</td>` +
+        `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${escapeHtml(startAt)}</td>` +
+        `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${escapeHtml(endAt)}</td>` +
+        `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${escapeHtml(status)}</td>` +
         `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${formatDurationSec(
           incident.duration_sec
         )}</td>` +
-        `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${incident.owner || '-'}</td>` +
-        `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${incident.ack_by || '-'}</td>` +
+        `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${escapeHtml(incident.owner || '-')}</td>` +
+        `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${escapeHtml(incident.ack_by || '-')}</td>` +
         '</tr>'
       );
     })
     .join('');
 
-  const html =
-    '<div style="font-family: Verdana, sans-serif; line-height: 1.5;">' +
-    '<h2 style="margin: 0 0 8px;">Moni-D - Informe semanal de incidentes</h2>' +
-    '<p style="margin: 0 0 12px;">Periodo: Ultimos 7 dias</p>' +
-    '<table style="border-collapse: collapse; width: 100%; font-size: 12px; margin-bottom: 12px;">' +
-    '<thead><tr>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Total</th>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Abiertos</th>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Cerrados</th>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Ack</th>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Sin ack</th>' +
-    '</tr></thead>' +
-    `<tbody><tr>` +
-    `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${total}</td>` +
-    `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${openCount}</td>` +
-    `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${closedCount}</td>` +
-    `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${ackedCount}</td>` +
-    `<td style="padding:6px 10px;border-bottom:1px solid #eee;">${unackedCount}</td>` +
-    `</tr></tbody>` +
-    '</table>' +
-    '<table style="border-collapse: collapse; width: 100%; font-size: 12px;">' +
-    '<thead><tr>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Servicio</th>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Inicio</th>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Fin</th>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Estado</th>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Duracion</th>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Responsable</th>' +
-    '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Ack</th>' +
-    '</tr></thead>' +
-    `<tbody>${rows || '<tr><td colspan="7" style="padding:6px 10px;">Sin incidentes</td></tr>'}</tbody>` +
-    '</table>' +
-    '<p style="margin-top: 16px; color: #666;">Reporte generado automaticamente por Moni-D.</p>' +
-    '</div>';
+  const summaryRows: Array<[string, string]> = [
+    ['Total incidentes', String(total)],
+    ['Abiertos', String(openCount)],
+    ['Cerrados', String(closedCount)],
+    ['Ack', String(ackedCount)],
+    ['Sin ack', String(unackedCount)]
+  ];
+
+  const html = wrapCard(
+    'Moni-D - Informe semanal de incidentes',
+    'SEMANAL',
+    '#0ea5e9',
+    '<p style="margin:0 0 12px;color:#334155;font-size:13px;">Periodo: Ultimos 7 dias</p>' +
+      '<div style="margin-bottom:14px;">' +
+      '<div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:6px;">Resumen ejecutivo</div>' +
+      `<table style="width:100%;border-collapse:collapse;">${renderRows(summaryRows)}</table>` +
+      '</div>' +
+      '<div style="margin-bottom:14px;">' +
+      '<div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:6px;">Detalle de incidentes</div>' +
+      '<table style="border-collapse: collapse; width: 100%; font-size: 12px;">' +
+      '<thead><tr>' +
+      '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Servicio</th>' +
+      '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Inicio</th>' +
+      '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Fin</th>' +
+      '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Estado</th>' +
+      '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Duracion</th>' +
+      '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Responsable</th>' +
+      '<th style="text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;">Ack</th>' +
+      '</tr></thead>' +
+      `<tbody>${rows || '<tr><td colspan="7" style="padding:6px 10px;">Sin incidentes</td></tr>'}</tbody>` +
+      '</table>' +
+      '</div>' +
+      '<p style="margin:0;color:#64748b;font-size:12px;">Adjuntos: PDF y CSV para respaldo.</p>'
+  );
 
   await transport.sendMail({
     from: env.SMTP_FROM,
