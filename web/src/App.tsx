@@ -387,6 +387,13 @@ export default function App() {
     return { label: 'Todo OK', tone: 'ok' as StatusTone };
   }, [stats]);
 
+  const healthPct = useMemo(() => {
+    if (!stats.total) {
+      return 0;
+    }
+    return Math.min(100, Math.max(0, Math.round((stats.active / stats.total) * 100)));
+  }, [stats]);
+
   const monitorClock = useMemo(() => {
     return { time: formatClockTime(clockNow), date: formatClockDate(clockNow) };
   }, [clockNow]);
@@ -1262,16 +1269,32 @@ export default function App() {
                 <div className="monitor-sub">Vista general de servicios en tiempo real.</div>
               </div>
             </div>
-            <div className="monitor-summary">
-              <span className={`monitor-pill ${statusSummary.tone}`}>{statusSummary.label}</span>
-              <span className="monitor-sync mono">
-                {state.loading ? 'Sincronizando...' : `Actualizado ${monitorLastUpdate}`}
-              </span>
-            </div>
-            <div className="monitor-summary">
-              <span className={`monitor-pill ${openIncidents > 0 ? 'bad' : 'ok'}`}>
-                {openIncidents} incidentes abiertos
-              </span>
+            <div className="monitor-hero-center">
+              <div className="monitor-health">
+                <div className="monitor-health-head">
+                  <span className={`monitor-pill ${statusSummary.tone}`}>{statusSummary.label}</span>
+                  <span className="monitor-health-score">{healthPct}% salud</span>
+                </div>
+                <div className="monitor-health-bar">
+                  <span style={{ width: `${healthPct}%` }}></span>
+                </div>
+                <div className="monitor-health-meta">
+                  <span className="mono">
+                    {state.loading ? 'Sincronizando...' : `Actualizado ${monitorLastUpdate}`}
+                  </span>
+                  <span>
+                    {stats.total} servicios · {stats.active} activos
+                  </span>
+                </div>
+              </div>
+              <div className="monitor-alerts">
+                <span className={`monitor-pill ${openIncidents > 0 ? 'bad' : 'ok'}`}>
+                  {openIncidents} incidentes abiertos
+                </span>
+                <span className={`monitor-pill ${stats.down > 0 ? 'bad' : 'ok'}`}>
+                  {stats.down} inactivos
+                </span>
+              </div>
             </div>
             <div className="monitor-clock">
               <div className="monitor-live">
