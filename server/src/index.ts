@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import { env } from './env';
 import { dbHealth, pool } from './db';
 import { startScheduler } from './scheduler';
+import { verifyEmailTransport } from './email';
 import { registerHealthRoutes } from './routes/health';
 import { registerNodeRoutes } from './routes/nodes';
 import { registerIncidentRoutes } from './routes/incidents';
@@ -12,6 +13,7 @@ import { registerAlertRoutes } from './routes/alerts';
 import { registerReportRoutes } from './routes/reports';
 import { registerAgentRoutes } from './routes/agent';
 import { registerAuditRoutes } from './routes/audit';
+import { registerUserRoutes } from './routes/users';
 
 async function buildServer() {
   const app = Fastify({ logger: true });
@@ -29,6 +31,7 @@ async function buildServer() {
   await registerReportRoutes(app);
   await registerAgentRoutes(app);
   await registerAuditRoutes(app);
+  await registerUserRoutes(app);
 
   app.addHook('onClose', async () => {
     await pool.end();
@@ -42,6 +45,7 @@ async function start() {
   await dbHealth();
 
   await app.listen({ host: env.HOST, port: env.PORT });
+  await verifyEmailTransport(app.log);
   await startScheduler(app.log);
 }
 

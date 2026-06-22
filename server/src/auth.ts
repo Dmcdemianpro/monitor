@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { env } from './env';
+import { pool } from './db';
 
 export type Role = 'admin' | 'operator' | 'viewer';
 export type AuthUser = { username: string; role: Role };
@@ -30,7 +31,38 @@ function timingSafeEqual(a: string, b: string) {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
-export function authenticate(username: string, password: string): AuthUser | null {
+export function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+export function verifyPassword(password: string, stored: string): boolean {
+  const [salt, hash] = stored.split(':');
+  if (!salt || !hash) return false;
+  const test = crypto.scryptSync(password, salt, 64).toString('hex');
+  return timingSafeEqual(hash, test);
+}
+
+export async function authenticate(username: string, password: string): Promise<AuthUser | null> {
+  // 1. Try database users first
+  try {
+    const { rows } = await pool.query(
+      'SELECT username, password_hash, role FROM users WHERE username = $1 AND enabled = true',
+      [username]
+    );
+    if (rows.length > 0) {
+      const row = rows[0];
+      if (verifyPassword(password, row.password_hash)) {
+        return { username: row.username, role: row.role as Role };
+      }
+      return null;
+    }
+  } catch {
+    // Table may not exist yet during migration; fall through to env credentials
+  }
+
+  // 2. Fallback to environment credentials (bootstrap/recovery)
   const match = credentials.find((cred) => cred.username === username);
   if (!match) {
     return null;

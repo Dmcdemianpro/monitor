@@ -18,6 +18,31 @@ const transport = nodemailer.createTransport({
   }
 });
 
+type EmailLogger = {
+  info: (...args: any[]) => void;
+  error: (...args: any[]) => void;
+};
+
+export async function verifyEmailTransport(logger?: EmailLogger) {
+  try {
+    await transport.verify();
+    if (logger) {
+      logger.info('smtp verify ok', {
+        host: env.SMTP_HOST,
+        port: env.SMTP_PORT,
+        user: env.SMTP_USER,
+        from: env.SMTP_FROM
+      });
+    }
+    return true;
+  } catch (err: any) {
+    if (logger) {
+      logger.error('smtp verify failed', err?.message || err);
+    }
+    return false;
+  }
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, '&amp;')

@@ -549,7 +549,7 @@ export type AlertChannel = {
 export type AlertChannelInput = {
   name: string;
   type: string;
-  config: any;
+  config?: any;
   enabled: boolean;
 };
 
@@ -1129,7 +1129,7 @@ export async function isNodeSilenced(node: {
     `,
     [node.id, node.area, node.groupName, node.criticality, node.tags]
   );
-  return res.rowCount > 0;
+  return (res.rowCount ?? 0) > 0;
 }
 
 async function ensureDefaultEscalationPolicy(): Promise<EscalationPolicy> {
@@ -1292,7 +1292,7 @@ export async function hasAlertEvent(params: {
     `,
     [params.incidentId, params.type, params.level ?? null, params.channelId ?? null]
   );
-  return res.rowCount > 0;
+  return (res.rowCount ?? 0) > 0;
 }
 
 export async function hasRecentAlertEvent(params: {
@@ -1318,7 +1318,7 @@ export async function hasRecentAlertEvent(params: {
     `,
     [params.nodeId, params.type, params.level ?? null, params.channelId ?? null, params.windowMin]
   );
-  return res.rowCount > 0;
+  return (res.rowCount ?? 0) > 0;
 }
 
 export async function recordAlertEvent(params: {

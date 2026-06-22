@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
-dotenv.config();
+dotenv.config({ override: true });
 
 const schema = z.object({
   NODE_ENV: z.string().default('development'),

@@ -37,8 +37,14 @@ import {
   updateAlertChannel,
   updateEscalationPolicy,
   updateSilence,
-  updateNode
+  updateNode,
+  fetchUsers,
+  createUser,
+  updateUser,
+  deleteUser,
+  changeUserPassword
 } from './api';
+import type { User } from './api';
 import type {
   AgentMetric,
   AlertChannel,
@@ -96,11 +102,14 @@ type LoadState = {
   lastUpdated: string | null;
 };
 
-type View = 'dashboard' | 'admin' | 'guide' | 'monitor';
+type View = 'dashboard' | 'admin' | 'guide' | 'monitor' | 'monitor_tv';
 
 function getViewFromPath(pathname: string): View {
   if (pathname.startsWith('/admin')) {
     return 'admin';
+  }
+  if (pathname.startsWith('/monitor_modotv')) {
+    return 'monitor_tv';
   }
   if (pathname.startsWith('/monitor')) {
     return 'monitor';
@@ -117,6 +126,8 @@ function getPathForView(view: View) {
       return '/admin';
     case 'monitor':
       return '/monitor';
+    case 'monitor_tv':
+      return '/monitor_modotv';
     case 'guide':
       return '/guide';
     default:
@@ -235,6 +246,16 @@ function getCriticalityLabel(value: string) {
   return CRITICALITY_LABELS[value] || value;
 }
 
+function getCriticalityRank(value: string) {
+  if (value === 'HIGH') {
+    return 0;
+  }
+  if (value === 'MEDIUM') {
+    return 1;
+  }
+  return 2;
+}
+
 function getThresholds(node?: Pick<
   NodeRecord,
   'cpuAlertPct' | 'memAlertPct' | 'diskAlertPct' | 'alertCooldownMin'
@@ -323,7 +344,7 @@ export default function App() {
   const [query, setQuery] = useState('');
   const [view, setView] = useState<View>(() => getViewFromPath(window.location.pathname));
   const [adminTab, setAdminTab] = useState<
-    'nodes' | 'alerts' | 'incidents' | 'reports' | 'audit' | 'agents'
+    'nodes' | 'alerts' | 'incidents' | 'reports' | 'audit' | 'agents' | 'users'
   >('nodes');
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -356,6 +377,9 @@ export default function App() {
     levels: [] as EscalationPolicy['levels']
   });
   const [reportEmail, setReportEmail] = useState('');
+  const [users, setUsers] = useState<User[]>([]);
+  const [userForm, setUserForm] = useState({ id: 0, username: '', password: '', role: 'operator' as string, enabled: true });
+  const [userPasswordForm, setUserPasswordForm] = useState<{ id: number; username: string; password: string } | null>(null);
   const [areaFilter, setAreaFilter] = useState('all');
   const [groupFilter, setGroupFilter] = useState('all');
   const [criticalityFilter, setCriticalityFilter] = useState('all');
@@ -363,17 +387,17 @@ export default function App() {
   const [clockNow, setClockNow] = useState(() => new Date());
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
-  const alarmCtxRef = useRef<AudioContext | null>(null);
-  const alarmOscRef = useRef<OscillatorNode | null>(null);
-  const alarmGainRef = useRef<GainNode | null>(null);
-  const alarmIntervalRef = useRef<number | null>(null);
+  const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
+  const alarmTestingRef = useRef(false);
+  const [tvHighlightIndex, setTvHighlightIndex] = useState(0);
   const [metricView, setMetricView] = useState<'areas' | 'groups'>('areas');
   const [state, setState] = useState<LoadState>({
     loading: true,
     error: null,
     lastUpdated: null
   });
-  const isMonitor = view === 'monitor';
+  const isMonitor = view === 'monitor' || view === 'monitor_tv';
+  const isTv = view === 'monitor_tv';
 
   const stats = useMemo(() => {
     const total = nodes.length;
@@ -489,6 +513,25 @@ export default function App() {
     });
   }, [nodes]);
 
+  const tvNodes = useMemo(() => {
+    return [...nodes].sort((a, b) => {
+      const rank = getStatusRank(a) - getStatusRank(b);
+      if (rank !== 0) {
+        return rank;
+      }
+      const critRank = getCriticalityRank(a.criticality || 'MEDIUM') -
+        getCriticalityRank(b.criticality || 'MEDIUM');
+      if (critRank !== 0) {
+        return critRank;
+      }
+      return a.name.localeCompare(b.name);
+    });
+  }, [nodes]);
+
+  const tvGridNodes = useMemo(() => {
+    return tvNodes.slice(0, 18);
+  }, [tvNodes]);
+
   const nodeById = useMemo(() => {
     return new Map(nodes.map((node) => [node.id, node]));
   }, [nodes]);
@@ -524,6 +567,26 @@ export default function App() {
       })
       .slice(0, 5);
   }, [areaMetrics]);
+
+  const tvFeatured = useMemo(() => {
+    if (!tvNodes.length) {
+      return null;
+    }
+    const index = tvHighlightIndex % tvNodes.length;
+    return tvNodes[index] || null;
+  }, [tvNodes, tvHighlightIndex]);
+
+  const tvTickerText = useMemo(() => {
+    const open = incidents.filter((incident) => !incident.end_at);
+    if (!open.length) {
+      return `Sin incidentes abiertos · Actualizado ${monitorLastUpdate}`;
+    }
+    const items = open.slice(0, 6).map((incident) => {
+      const since = formatSince(incident.start_at, clockNow);
+      return `${incident.node_name} (${since})`;
+    });
+    return `INCIDENTES ABIERTOS (${open.length}) | ${items.join(' | ')} | Actualizado ${monitorLastUpdate}`;
+  }, [incidents, monitorLastUpdate, clockNow]);
 
   const areaCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -641,13 +704,14 @@ export default function App() {
       return;
     }
     try {
-      const [channelsRes, silencesRes, policiesRes, recipientsRes, auditRes, agentRes] = await Promise.all([
+      const [channelsRes, silencesRes, policiesRes, recipientsRes, auditRes, agentRes, usersRes] = await Promise.all([
         fetchAlertChannels(),
         fetchSilences(),
         fetchEscalationPolicies(),
         fetchReportRecipients(),
         fetchAuditLogs(120),
-        fetchAgentMetrics()
+        fetchAgentMetrics(),
+        fetchUsers().catch(() => ({ users: [] as User[] }))
       ]);
       setAlertChannels(channelsRes.channels);
       setSilences(silencesRes.silences);
@@ -655,6 +719,7 @@ export default function App() {
       setReportRecipients(recipientsRes.recipients);
       setAuditLogs(auditRes.logs);
       setAgentMetrics(agentRes.metrics);
+      setUsers(usersRes.users);
       if (!policyForm.id && policiesRes.policies.length) {
         const first = policiesRes.policies[0];
         setPolicyForm({
@@ -691,12 +756,14 @@ export default function App() {
 
   useEffect(() => {
     document.body.classList.toggle('monitor-body', isMonitor);
+    document.body.classList.toggle('monitor-tv', isTv);
     document.body.classList.toggle('monitor-alerting', isMonitor && alarmActive);
     return () => {
       document.body.classList.remove('monitor-body');
+      document.body.classList.remove('monitor-tv');
       document.body.classList.remove('monitor-alerting');
     };
-  }, [isMonitor, alarmActive]);
+  }, [isMonitor, isTv, alarmActive]);
 
   useEffect(() => {
     if (!isMonitor) {
@@ -708,6 +775,17 @@ export default function App() {
   }, [isMonitor]);
 
   useEffect(() => {
+    if (!isTv || !tvNodes.length) {
+      return;
+    }
+    setTvHighlightIndex(0);
+    const timer = window.setInterval(() => {
+      setTvHighlightIndex((prev) => (prev + 1) % tvNodes.length);
+    }, 12000);
+    return () => clearInterval(timer);
+  }, [isTv, tvNodes.length]);
+
+  useEffect(() => {
     if (!isMonitor) {
       stopAlarmAudio();
       setAudioEnabled(false);
@@ -716,7 +794,7 @@ export default function App() {
     }
     if (audioEnabled && alarmActive) {
       void startAlarmAudio();
-    } else {
+    } else if (!alarmTestingRef.current) {
       stopAlarmAudio();
     }
   }, [audioEnabled, alarmActive, isMonitor]);
@@ -724,10 +802,6 @@ export default function App() {
   useEffect(() => {
     return () => {
       stopAlarmAudio();
-      if (alarmCtxRef.current) {
-        alarmCtxRef.current.close().catch(() => undefined);
-        alarmCtxRef.current = null;
-      }
     };
   }, []);
 
@@ -920,6 +994,9 @@ export default function App() {
     });
     setSilenceDuration('');
     setPolicyForm({ id: 0, name: '', enabled: true, levels: [] });
+    setUsers([]);
+    setUserForm({ id: 0, username: '', password: '', role: 'operator', enabled: true });
+    setUserPasswordForm(null);
     setIncidentNotes([]);
     setSelectedIncidentId(null);
     setIncidentNoteDraft('');
@@ -949,76 +1026,36 @@ export default function App() {
   };
 
   const stopAlarmAudio = () => {
-    if (alarmIntervalRef.current) {
-      window.clearInterval(alarmIntervalRef.current);
-      alarmIntervalRef.current = null;
+    const audio = alarmAudioRef.current;
+    if (!audio) {
+      return;
     }
-    const ctx = alarmCtxRef.current;
-    const osc = alarmOscRef.current;
-    const gain = alarmGainRef.current;
-    if (gain && ctx) {
-      try {
-        gain.gain.cancelScheduledValues(ctx.currentTime);
-        gain.gain.setValueAtTime(0, ctx.currentTime);
-      } catch {
-        // noop
-      }
-    }
-    if (osc) {
-      try {
-        osc.stop();
-      } catch {
-        // noop
-      }
-      osc.disconnect();
-      alarmOscRef.current = null;
-    }
-    if (gain) {
-      gain.disconnect();
-      alarmGainRef.current = null;
+    try {
+      audio.pause();
+      audio.currentTime = 0;
+    } catch {
+      // noop
     }
   };
 
   const startAlarmAudio = async () => {
     try {
-      const AudioCtx =
-        window.AudioContext ||
-        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!AudioCtx) {
+      if (!alarmAudioRef.current) {
+        const audio = new Audio('/alarm-1.mp3');
+        audio.loop = true;
+        audio.preload = 'auto';
+        audio.volume = 1;
+        alarmAudioRef.current = audio;
+      }
+      const audio = alarmAudioRef.current;
+      if (!audio) {
         return;
       }
-      if (!alarmCtxRef.current) {
-        alarmCtxRef.current = new AudioCtx();
-      }
-      const ctx = alarmCtxRef.current;
-      if (ctx.state === 'suspended') {
-        await ctx.resume();
-      }
-      if (alarmOscRef.current) {
+      if (!audio.paused) {
         return;
       }
-      const gain = ctx.createGain();
-      gain.gain.value = 0;
-      gain.connect(ctx.destination);
-      const osc = ctx.createOscillator();
-      osc.type = 'square';
-      osc.frequency.value = 880;
-      osc.connect(gain);
-      osc.start();
-      alarmOscRef.current = osc;
-      alarmGainRef.current = gain;
-
-      const beep = () => {
-        const now = ctx.currentTime;
-        gain.gain.cancelScheduledValues(now);
-        gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(0.35, now + 0.02);
-        gain.gain.linearRampToValueAtTime(0, now + 0.28);
-        osc.frequency.setValueAtTime(740, now);
-        osc.frequency.linearRampToValueAtTime(980, now + 0.28);
-      };
-      beep();
-      alarmIntervalRef.current = window.setInterval(beep, 900);
+      audio.currentTime = 0;
+      await audio.play();
       setAudioBlocked(false);
     } catch {
       setAudioBlocked(true);
@@ -1038,13 +1075,31 @@ export default function App() {
   };
 
   const handleTestAlarmAudio = async () => {
+    alarmTestingRef.current = true;
     setAudioEnabled(true);
     await startAlarmAudio();
     window.setTimeout(() => {
+      alarmTestingRef.current = false;
       if (!alarmActive) {
         stopAlarmAudio();
       }
-    }, 1500);
+    }, 10000);
+  };
+
+  const handleToggleFullscreen = async () => {
+    if (!document.fullscreenElement) {
+      try {
+        await document.documentElement.requestFullscreen();
+      } catch {
+        // noop
+      }
+      return;
+    }
+    try {
+      await document.exitFullscreen();
+    } catch {
+      // noop
+    }
   };
 
   const handleChannelEdit = (channel: AlertChannel) => {
@@ -1317,6 +1372,56 @@ export default function App() {
     });
   };
 
+  const handleUserSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      if (userForm.id) {
+        await updateUser(userForm.id, {
+          username: userForm.username.trim(),
+          role: userForm.role,
+          enabled: userForm.enabled
+        });
+      } else {
+        await createUser({
+          username: userForm.username.trim(),
+          password: userForm.password,
+          role: userForm.role,
+          enabled: userForm.enabled
+        });
+      }
+      setUserForm({ id: 0, username: '', password: '', role: 'operator', enabled: true });
+      await loadAdminData();
+    } catch (err: any) {
+      setAuthError(err?.message || 'No se pudo guardar el usuario');
+    }
+  };
+
+  const handleUserEdit = (u: User) => {
+    setUserForm({ id: u.id, username: u.username, password: '', role: u.role, enabled: u.enabled });
+  };
+
+  const handleUserDelete = async (u: User) => {
+    if (!confirm(`Eliminar usuario "${u.username}"?`)) return;
+    try {
+      await deleteUser(u.id);
+      await loadAdminData();
+    } catch (err: any) {
+      setAuthError(err?.message || 'No se pudo eliminar el usuario');
+    }
+  };
+
+  const handleUserPasswordSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!userPasswordForm) return;
+    try {
+      await changeUserPassword(userPasswordForm.id, userPasswordForm.password);
+      setUserPasswordForm(null);
+      setAuthError(null);
+    } catch (err: any) {
+      setAuthError(err?.message || 'No se pudo cambiar la contrasena');
+    }
+  };
+
   return (
     <div className={`app ${isMonitor ? 'monitor-mode' : ''}`}>
       {!isMonitor ? (
@@ -1363,6 +1468,12 @@ export default function App() {
               Monitor
             </button>
             <button
+              className={`tab-btn ${view === 'monitor_tv' ? 'active' : ''}`}
+              onClick={() => navigateTo('monitor_tv')}
+            >
+              Monitor TV
+            </button>
+            <button
               className={`tab-btn ${view === 'dashboard' ? 'active' : ''}`}
               onClick={() => navigateTo('dashboard')}
             >
@@ -1394,7 +1505,240 @@ export default function App() {
       </header>
       ) : null}
 
-      {view === 'monitor' ? (
+      {view === 'monitor_tv' ? (
+        <section className="monitor-tv">
+          <div className="tv-top">
+            <div className="tv-brand">
+              <span className="tv-dot"></span>
+              <div>
+                <div className="tv-title">Moni-D TV</div>
+                <div className="tv-sub">Panel en vivo para pantallas.</div>
+              </div>
+            </div>
+            <div className="tv-status">
+              <div className="tv-status-row">
+                <span className={`tv-pill ${statusSummary.tone}`}>{statusSummary.label}</span>
+                <span className={`tv-pill ${openIncidents > 0 ? 'bad' : 'ok'}`}>
+                  {openIncidents} incidentes
+                </span>
+                <span className={`tv-pill ${stats.down > 0 ? 'bad' : 'ok'}`}>
+                  {stats.down} inactivos
+                </span>
+              </div>
+              <div className="tv-health">
+                <span className="tv-health-label">Salud global</span>
+                <strong>{healthPct}%</strong>
+                <div className="tv-health-bar">
+                  <span style={{ width: `${healthPct}%` }}></span>
+                </div>
+              </div>
+              <div className="tv-status-meta">
+                <span className="mono">
+                  {state.loading ? 'Sincronizando...' : `Actualizado ${monitorLastUpdate}`}
+                </span>
+                <span>
+                  {stats.total} servicios | {stats.active} activos | {stats.paused} pausados
+                </span>
+              </div>
+            </div>
+            <div className="tv-clock">
+              <div className="tv-clock-time mono">{monitorClock.time}</div>
+              <div className="tv-clock-date">{monitorClock.date}</div>
+              <div className="tv-actions">
+                <button
+                  className={`tv-action ${audioEnabled ? 'active' : ''} ${
+                    alarmActive ? 'alarm' : ''
+                  }`}
+                  onClick={handleToggleAlarmAudio}
+                  type="button"
+                >
+                  Alarma
+                </button>
+                <button className="tv-action" onClick={handleTestAlarmAudio} type="button">
+                  Probar
+                </button>
+                <button className="tv-action" onClick={handleToggleFullscreen} type="button">
+                  Pantalla completa
+                </button>
+              </div>
+              {audioBlocked ? (
+                <div className="tv-audio-note">Permitir sonido en el navegador</div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="tv-main">
+            <div className="tv-feature">
+              {tvFeatured ? (
+                (() => {
+                  const status = getStatus(tvFeatured);
+                  const metrics = nodeMetricsMap.get(tvFeatured.id);
+                  const agentMetric = agentSummaryMap.get(tvFeatured.id);
+                  const area = normalizeLabel(tvFeatured.area);
+                  const group = normalizeLabel(tvFeatured.groupName);
+                  const criticality = tvFeatured.criticality || 'MEDIUM';
+                  const avgLatency = metrics?.avgLatencyMs ?? null;
+                  const lastCheck = formatSince(tvFeatured.lastCheckAt, clockNow);
+                  const lastChange = formatSince(tvFeatured.lastChangeAt, clockNow);
+                  const checkInterval = formatDuration(tvFeatured.checkIntervalSec);
+                  const retryInterval = formatDuration(tvFeatured.retryIntervalSec);
+                  const timeout = formatMs(tvFeatured.timeoutMs);
+                  const transportLabel = tvFeatured.tlsEnabled ? 'TLS' : 'TCP';
+                  const thresholds = getThresholds(tvFeatured);
+                  const cpuHigh =
+                    agentMetric?.cpuPct !== null &&
+                    agentMetric?.cpuPct !== undefined &&
+                    agentMetric.cpuPct >= thresholds.cpu;
+                  const memHigh =
+                    agentMetric?.memPct !== null &&
+                    agentMetric?.memPct !== undefined &&
+                    agentMetric.memPct >= thresholds.mem;
+                  const diskHigh =
+                    agentMetric?.diskPct !== null &&
+                    agentMetric?.diskPct !== undefined &&
+                    agentMetric.diskPct >= thresholds.disk;
+                  return (
+                    <div className={`tv-feature-card ${status.tone}`}>
+                      <div className="tv-feature-head">
+                        <span className={`tv-status ${status.tone}`}>{status.label}</span>
+                        <div className="tv-feature-name">{tvFeatured.name}</div>
+                        <span className={`tv-crit ${criticality.toLowerCase()}`}>
+                          {getCriticalityLabel(criticality)}
+                        </span>
+                      </div>
+                      <div className="tv-feature-meta mono">
+                        {tvFeatured.host}:{tvFeatured.port} | {area} | {group} | {transportLabel}
+                      </div>
+                      <div className="tv-feature-grid">
+                        <div className="tv-feature-item">
+                          <span>Latencia</span>
+                          <strong>{formatMs(avgLatency)}</strong>
+                        </div>
+                        <div className="tv-feature-item">
+                          <span>Ultimo check</span>
+                          <strong>{lastCheck}</strong>
+                        </div>
+                        <div className="tv-feature-item">
+                          <span>Estado desde</span>
+                          <strong>{lastChange}</strong>
+                        </div>
+                        {agentMetric ? (
+                          <>
+                            <div className={`tv-feature-item ${cpuHigh ? 'bad' : ''}`}>
+                              <span>CPU</span>
+                              <strong>{formatPercent(agentMetric.cpuPct)}</strong>
+                            </div>
+                            <div className={`tv-feature-item ${memHigh ? 'bad' : ''}`}>
+                              <span>RAM</span>
+                              <strong>{formatPercent(agentMetric.memPct)}</strong>
+                            </div>
+                            <div className={`tv-feature-item ${diskHigh ? 'bad' : ''}`}>
+                              <span>Disco</span>
+                              <strong>{formatPercent(agentMetric.diskPct)}</strong>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="tv-feature-item">
+                              <span>Intervalo</span>
+                              <strong>{checkInterval}</strong>
+                            </div>
+                            <div className="tv-feature-item">
+                              <span>Reintento</span>
+                              <strong>{retryInterval}</strong>
+                            </div>
+                            <div className="tv-feature-item">
+                              <span>Timeout</span>
+                              <strong>{timeout}</strong>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      <div className="tv-feature-foot mono">
+                        Ultimo check {formatSince(tvFeatured.lastCheckAt, clockNow)}
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="tv-empty">No hay servicios configurados.</div>
+              )}
+            </div>
+            <div className="tv-side">
+              <div className="tv-panel">
+                <div className="tv-panel-head">
+                  <h3>Incidentes recientes</h3>
+                  <span className={`tv-pill ${openIncidents > 0 ? 'bad' : 'ok'}`}>
+                    {openIncidents} abiertos
+                  </span>
+                </div>
+                <div className="tv-panel-body">
+                  {monitorIncidents.map((incident) => {
+                    const active = !incident.end_at;
+                    return (
+                      <div className={`tv-incident ${active ? 'bad' : 'ok'}`} key={incident.id}>
+                        <div>
+                          <div className="tv-incident-title">{incident.node_name}</div>
+                          <div className="tv-incident-meta">
+                            Inicio {formatDate(incident.start_at)}
+                          </div>
+                        </div>
+                        <div className="tv-incident-status">
+                          <span className={`tv-status ${active ? 'bad' : 'ok'}`}>
+                            {active ? 'Abierto' : 'Cerrado'}
+                          </span>
+                          <span className="mono">{formatDuration(incident.duration_sec)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {!monitorIncidents.length && (
+                    <div className="tv-empty">No hay incidentes recientes.</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="tv-grid">
+            {tvGridNodes.map((node) => {
+              const status = getStatus(node);
+              const metrics = nodeMetricsMap.get(node.id);
+              const agentMetric = agentSummaryMap.get(node.id);
+              const criticality = node.criticality || 'MEDIUM';
+              const avgLatency = metrics?.avgLatencyMs ?? null;
+              const isFeatured = tvFeatured?.id === node.id;
+              return (
+                <div className={`tv-card ${status.tone} ${isFeatured ? 'featured' : ''}`} key={node.id}>
+                  <div className="tv-card-head">
+                    <span className={`tv-status ${status.tone}`}>{status.label}</span>
+                    <span className={`tv-crit ${criticality.toLowerCase()}`}>
+                      {getCriticalityLabel(criticality)}
+                    </span>
+                  </div>
+                  <div className="tv-card-name">{node.name}</div>
+                  <div className="tv-card-meta mono">
+                    {node.host}:{node.port}
+                  </div>
+                  <div className="tv-card-metrics">
+                    <span>Lat {formatMs(avgLatency)}</span>
+                    <span>
+                      {agentMetric ? `CPU ${formatPercent(agentMetric.cpuPct)}` : 'Sin agente'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+            {!tvGridNodes.length && <div className="tv-empty">No hay servicios.</div>}
+          </div>
+
+          <div className="tv-ticker">
+            <div className="tv-ticker-track">
+              <span>{tvTickerText}</span>
+            </div>
+          </div>
+        </section>
+      ) : view === 'monitor' ? (
         <section className="monitor-view">
           <div className="monitor-hero">
             <div className="monitor-brand">
@@ -1418,7 +1762,7 @@ export default function App() {
                     {state.loading ? 'Sincronizando...' : `Actualizado ${monitorLastUpdate}`}
                   </span>
                   <span>
-                    {stats.total} servicios · {stats.active} activos
+                    {stats.total} servicios | {stats.active} activos
                   </span>
                 </div>
               </div>
@@ -1961,6 +2305,10 @@ export default function App() {
                   <span className="mono">http://localhost:5173/monitor</span>
                 </div>
                 <div className="guide-meta-row">
+                  <span className="label">Monitor TV</span>
+                  <span className="mono">http://localhost:5173/monitor_modotv</span>
+                </div>
+                <div className="guide-meta-row">
                   <span className="label">Admin</span>
                   <span className="mono">http://localhost:5173/admin</span>
                 </div>
@@ -2126,6 +2474,14 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
                 >
                   Auditoria
                 </button>
+                {authUser?.role === 'admin' && (
+                  <button
+                    className={`tab-btn ${adminTab === 'users' ? 'active' : ''}`}
+                    onClick={() => setAdminTab('users')}
+                  >
+                    Usuarios
+                  </button>
+                )}
               </div>
               {authError ? <p className="alert">{authError}</p> : null}
               {adminTab === 'nodes' && (
@@ -3165,6 +3521,138 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
                 </div>
               ))}
               {!auditLogs.length && <div className="empty">Sin registros.</div>}
+            </div>
+          </div>
+        )}
+
+        {adminTab === 'users' && authUser?.role === 'admin' && (
+          <div className="admin-grid">
+            <div className="panel admin-panel">
+              <div className="panel-header">
+                <div>
+                  <h2>{userForm.id ? 'Editar usuario' : 'Nuevo usuario'}</h2>
+                  <span className="panel-sub">Gestionar usuarios del sistema.</span>
+                </div>
+                {userForm.id ? (
+                  <button
+                    className="ghost"
+                    onClick={() => setUserForm({ id: 0, username: '', password: '', role: 'operator', enabled: true })}
+                  >
+                    Cancelar
+                  </button>
+                ) : null}
+              </div>
+              <form className="admin-form" onSubmit={handleUserSubmit}>
+                <label>
+                  Usuario
+                  <input
+                    value={userForm.username}
+                    onChange={(e) => setUserForm({ ...userForm, username: e.target.value })}
+                    required
+                    placeholder="nombre de usuario"
+                  />
+                </label>
+                {!userForm.id && (
+                  <label>
+                    Password
+                    <input
+                      type="password"
+                      value={userForm.password}
+                      onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
+                      required
+                      minLength={4}
+                      placeholder="minimo 4 caracteres"
+                    />
+                  </label>
+                )}
+                <label>
+                  Rol
+                  <select
+                    value={userForm.role}
+                    onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}
+                  >
+                    <option value="admin">Admin</option>
+                    <option value="operator">Operador</option>
+                    <option value="viewer">Visor</option>
+                  </select>
+                </label>
+                <label className="inline">
+                  <input
+                    type="checkbox"
+                    checked={userForm.enabled}
+                    onChange={(e) => setUserForm({ ...userForm, enabled: e.target.checked })}
+                  />
+                  Habilitado
+                </label>
+                <button className="primary" type="submit">
+                  {userForm.id ? 'Guardar cambios' : 'Crear usuario'}
+                </button>
+              </form>
+
+              {userPasswordForm && (
+                <form className="admin-form" onSubmit={handleUserPasswordSubmit} style={{ marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+                  <div className="panel-header">
+                    <div>
+                      <h3>Cambiar contrasena: {userPasswordForm.username}</h3>
+                    </div>
+                    <button className="ghost" type="button" onClick={() => setUserPasswordForm(null)}>
+                      Cancelar
+                    </button>
+                  </div>
+                  <label>
+                    Nueva contrasena
+                    <input
+                      type="password"
+                      value={userPasswordForm.password}
+                      onChange={(e) => setUserPasswordForm({ ...userPasswordForm, password: e.target.value })}
+                      required
+                      minLength={4}
+                      placeholder="minimo 4 caracteres"
+                    />
+                  </label>
+                  <button className="primary" type="submit">
+                    Cambiar contrasena
+                  </button>
+                </form>
+              )}
+            </div>
+
+            <div className="panel">
+              <div className="panel-header">
+                <div>
+                  <h2>Usuarios registrados</h2>
+                  <span className="panel-sub">{users.length} usuario(s) en base de datos.</span>
+                </div>
+              </div>
+              <div className="admin-table">
+                <div className="admin-row head">
+                  <span>Usuario</span>
+                  <span>Rol</span>
+                  <span>Estado</span>
+                  <span>Creado</span>
+                  <span>Acciones</span>
+                </div>
+                {users.map((u) => (
+                  <div className="admin-row" key={u.id}>
+                    <span className="mono">{u.username}</span>
+                    <span>{u.role}</span>
+                    <span>
+                      <span className={`status-pill ${u.enabled ? 'ok' : 'muted'}`}>
+                        {u.enabled ? 'Activo' : 'Deshabilitado'}
+                      </span>
+                    </span>
+                    <span className="mono">{formatDate(u.created_at)}</span>
+                    <div className="admin-actions">
+                      <button className="ghost" onClick={() => handleUserEdit(u)}>Editar</button>
+                      <button className="ghost" onClick={() => setUserPasswordForm({ id: u.id, username: u.username, password: '' })}>
+                        Contrasena
+                      </button>
+                      <button className="ghost danger" onClick={() => handleUserDelete(u)}>Eliminar</button>
+                    </div>
+                  </div>
+                ))}
+                {!users.length && <div className="empty">No hay usuarios registrados. Use el formulario para crear el primero.</div>}
+              </div>
             </div>
           </div>
         )}

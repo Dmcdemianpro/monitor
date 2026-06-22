@@ -16,7 +16,7 @@ import type {
   GroupMetric
 } from './types';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:4000`;
 const TOKEN_KEY = 'monid_token';
 
 export function getAuthToken() {
@@ -376,4 +376,55 @@ export async function fetchAgentSeries(params: {
 
 export async function fetchAuditLogs(limit = 100) {
   return request<{ logs: AuditLog[] }>(`/api/audit?limit=${limit}`);
+}
+
+// --- Users ---
+
+export interface User {
+  id: number;
+  username: string;
+  role: 'admin' | 'operator' | 'viewer';
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function fetchUsers() {
+  return request<{ users: User[] }>('/api/users');
+}
+
+export async function createUser(payload: {
+  username: string;
+  password: string;
+  role: string;
+  enabled: boolean;
+}) {
+  return request<{ id: number }>('/api/users', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function updateUser(id: number, payload: {
+  username: string;
+  role: string;
+  enabled: boolean;
+}) {
+  return request<{ ok: boolean }>(`/api/users/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function changeUserPassword(id: number, password: string) {
+  return request<{ ok: boolean }>(`/api/users/${id}/password`, {
+    method: 'PATCH',
+    body: JSON.stringify({ password })
+  });
+}
+
+export async function deleteUser(id: number) {
+  return request<{ ok: boolean }>(`/api/users/${id}`, {
+    method: 'DELETE'
+  });
 }

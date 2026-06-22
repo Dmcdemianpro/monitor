@@ -10,7 +10,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
         password: z.string().min(1)
       })
       .parse(req.body);
-    const user = authenticate(body.username, body.password);
+    const user = await authenticate(body.username, body.password);
     if (!user) {
       reply.code(401).send({ error: 'invalid credentials' });
       return;
