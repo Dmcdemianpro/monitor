@@ -33,15 +33,30 @@ export function setAuthToken(token: string) {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getAuthToken();
+  // Only advertise a JSON body when we actually send one. Sending
+  // Content-Type: application/json with an empty body (e.g. DELETE) makes
+  // Fastify reject the request with FST_ERR_CTP_EMPTY_JSON_BODY.
+  const hasBody = options?.body != null;
   const res = await fetch(`${API_URL}${path}`, {
+    ...options,
     headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    },
-    ...options
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options?.headers || {})
+    }
   });
 
   if (!res.ok) {
+    // Session expired or invalid token: clear it and notify the app so it can
+    // send the user back to the login screen with a clear message, instead of
+    // surfacing a cryptic "unauthorized" while pretending the session is alive.
+    if (res.status === 401 && token) {
+      setAuthToken('');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('monid:unauthorized'));
+      }
+      throw new Error('Tu sesion expiro. Vuelve a iniciar sesion.');
+    }
     const text = await res.text();
     throw new Error(text || `Request failed: ${res.status}`);
   }

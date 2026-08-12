@@ -211,17 +211,18 @@ function formatDuration(seconds: number) {
   if (!Number.isFinite(seconds)) {
     return '-';
   }
-  if (seconds < 60) {
-    return `${seconds}s`;
+  const total = Math.round(seconds);
+  if (total < 60) {
+    return `${total}s`;
   }
-  if (seconds < 3600) {
-    const min = Math.floor(seconds / 60);
-    const sec = seconds % 60;
-    return `${min}m ${sec}s`;
+  if (total < 3600) {
+    const min = Math.floor(total / 60);
+    const sec = total % 60;
+    return sec ? `${min}m ${sec}s` : `${min}m`;
   }
-  const hours = Math.floor(seconds / 3600);
-  const min = Math.floor((seconds % 3600) / 60);
-  return `${hours}h ${min}m`;
+  const hours = Math.floor(total / 3600);
+  const min = Math.floor((total % 3600) / 60);
+  return min ? `${hours}h ${min}m` : `${hours}h`;
 }
 
 function formatPercent(value: number | null | undefined) {
@@ -341,6 +342,11 @@ export default function App() {
   const [incidentNoteDraft, setIncidentNoteDraft] = useState('');
   const [incidentOwnerDraft, setIncidentOwnerDraft] = useState('');
   const [incidentAckDraft, setIncidentAckDraft] = useState('');
+  const [incidentStatusFilter, setIncidentStatusFilter] = useState<'all' | 'open' | 'closed'>('all');
+  const [incidentAckFilter, setIncidentAckFilter] = useState<'all' | 'unacked' | 'acked'>('all');
+  const [incidentSearch, setIncidentSearch] = useState('');
+  const [auditSearch, setAuditSearch] = useState('');
+  const [auditActionFilter, setAuditActionFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [view, setView] = useState<View>(() => getViewFromPath(window.location.pathname));
   const [adminTab, setAdminTab] = useState<
@@ -348,7 +354,10 @@ export default function App() {
   >('nodes');
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [incidentsExpanded, setIncidentsExpanded] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [channelForm, setChannelForm] = useState({
     id: 0,
@@ -435,6 +444,62 @@ export default function App() {
   const openIncidents = useMemo(() => {
     return incidents.filter((incident) => !incident.end_at).length;
   }, [incidents]);
+
+  const sortedIncidents = useMemo(() => {
+    return [...incidents].sort((a, b) => {
+      const aOpen = a.end_at ? 0 : 1;
+      const bOpen = b.end_at ? 0 : 1;
+      if (aOpen !== bOpen) return bOpen - aOpen;
+      return new Date(b.start_at).getTime() - new Date(a.start_at).getTime();
+    });
+  }, [incidents]);
+
+  const INCIDENTS_COLLAPSED = 6;
+  const visibleIncidents = incidentsExpanded
+    ? sortedIncidents
+    : sortedIncidents.slice(0, INCIDENTS_COLLAPSED);
+
+  const incidentCounters = useMemo(() => {
+    let open = 0;
+    let unacked = 0;
+    for (const incident of incidents) {
+      if (!incident.end_at) open += 1;
+      if (!incident.ack_at) unacked += 1;
+    }
+    return { total: incidents.length, open, unacked };
+  }, [incidents]);
+
+  const adminIncidents = useMemo(() => {
+    const term = incidentSearch.trim().toLowerCase();
+    return sortedIncidents.filter((incident) => {
+      const isOpen = !incident.end_at;
+      const isAcked = Boolean(incident.ack_at);
+      if (incidentStatusFilter === 'open' && !isOpen) return false;
+      if (incidentStatusFilter === 'closed' && isOpen) return false;
+      if (incidentAckFilter === 'acked' && !isAcked) return false;
+      if (incidentAckFilter === 'unacked' && isAcked) return false;
+      if (term && !incident.node_name.toLowerCase().includes(term)) return false;
+      return true;
+    });
+  }, [sortedIncidents, incidentStatusFilter, incidentAckFilter, incidentSearch]);
+
+  const auditActions = useMemo(() => {
+    return Array.from(new Set(auditLogs.map((log) => log.action))).sort();
+  }, [auditLogs]);
+
+  const filteredAuditLogs = useMemo(() => {
+    const term = auditSearch.trim().toLowerCase();
+    return auditLogs.filter((log) => {
+      if (auditActionFilter !== 'all' && log.action !== auditActionFilter) return false;
+      if (!term) return true;
+      return (
+        log.action.toLowerCase().includes(term) ||
+        (log.actor || '').toLowerCase().includes(term) ||
+        (log.entity_type || '').toLowerCase().includes(term) ||
+        (log.entity_id || '').toLowerCase().includes(term)
+      );
+    });
+  }, [auditLogs, auditActionFilter, auditSearch]);
 
   const alarmActive = useMemo(() => {
     return stats.down > 0 || openIncidents > 0;
@@ -956,14 +1021,18 @@ export default function App() {
   const handleLogin = async (event: FormEvent) => {
     event.preventDefault();
     setAuthError(null);
+    setAuthLoading(true);
     try {
       const res = await login(loginForm.username, loginForm.password);
       setAuthToken(res.token);
       setAuthUser(res.user);
       setLoginForm({ username: '', password: '' });
+      setShowPassword(false);
       await loadAdminData();
     } catch (err: any) {
       setAuthError(err?.message || 'Credenciales invalidas');
+    } finally {
+      setAuthLoading(false);
     }
   };
 
@@ -1003,6 +1072,16 @@ export default function App() {
     setIncidentAckDraft('');
     setIncidentOwnerDraft('');
   };
+
+  useEffect(() => {
+    const onUnauthorized = () => {
+      handleLogout();
+      setView('admin');
+      setAuthError('Tu sesion expiro. Vuelve a iniciar sesion.');
+    };
+    window.addEventListener('monid:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('monid:unauthorized', onUnauthorized);
+  }, []);
 
   const handleChannelSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -1461,16 +1540,10 @@ export default function App() {
         </div>
         <div className="top-actions">
           <nav className="tabs">
-            <button
-              className={`tab-btn ${view === 'monitor' ? 'active' : ''}`}
-              onClick={() => navigateTo('monitor')}
-            >
+            <button className="tab-btn" onClick={() => navigateTo('monitor')}>
               Monitor
             </button>
-            <button
-              className={`tab-btn ${view === 'monitor_tv' ? 'active' : ''}`}
-              onClick={() => navigateTo('monitor_tv')}
-            >
+            <button className="tab-btn" onClick={() => navigateTo('monitor_tv')}>
               Monitor TV
             </button>
             <button
@@ -2179,7 +2252,7 @@ export default function App() {
                           <div>
                             <div className="area-name">{metric.area}</div>
                             <div className="area-meta">
-                              {count} nodos ? Lat {formatMs(latency)} ? MTTR {formatDuration(metric.mttrSec ?? 0)}
+                              {count} nodos · Lat {formatMs(latency)} · MTTR {formatDuration(metric.mttrSec ?? 0)}
                             </div>
                           </div>
                           <div className="uptime mini">
@@ -2211,7 +2284,7 @@ export default function App() {
                           <div>
                             <div className="area-name">{metric.groupName}</div>
                             <div className="area-meta">
-                              {count} nodos ? Lat {formatMs(latency)} ? MTTR {formatDuration(metric.mttrSec ?? 0)}
+                              {count} nodos · Lat {formatMs(latency)} · MTTR {formatDuration(metric.mttrSec ?? 0)}
                             </div>
                           </div>
                           <div className="uptime mini">
@@ -2247,12 +2320,12 @@ export default function App() {
                   {openIncidents} abiertos
                 </span>
               </div>
-              <div className="panel-body scroll">
-                <div className="incident-list">
-                  {incidents.map((incident) => {
+              <div className="panel-body">
+                <div className="incident-list scroll">
+                  {visibleIncidents.map((incident) => {
                     const active = !incident.end_at;
                     return (
-                      <div className="incident-row" key={incident.id}>
+                      <div className={`incident-row ${active ? 'active' : ''}`} key={incident.id}>
                         <div>
                           <div className="node-name">{incident.node_name}</div>
                           <div className="node-meta">
@@ -2273,6 +2346,19 @@ export default function App() {
                     <div className="empty">No hay incidentes recientes.</div>
                   )}
                 </div>
+                {sortedIncidents.length > INCIDENTS_COLLAPSED && (
+                  <div className="incident-list-footer">
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      onClick={() => setIncidentsExpanded((prev) => !prev)}
+                    >
+                      {incidentsExpanded
+                        ? 'Ver menos'
+                        : `Ver todos (${sortedIncidents.length})`}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -2404,36 +2490,58 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
       ) : (
         <section className="admin-view">
           {!authUser ? (
-            <div className="panel login-panel">
-              <div className="panel-header">
-                <div>
-                  <h2>Acceso administracion</h2>
-                  <span className="panel-sub">Solo usuarios autorizados.</span>
+            <div className="login-wrap">
+              <div className="panel login-panel">
+                <div className="login-brand">
+                  <span className="login-logo">M</span>
+                  <div>
+                    <h2>Moni-D</h2>
+                    <span className="panel-sub">Acceso a administracion</span>
+                  </div>
                 </div>
+                <p className="login-hint">
+                  Ingresa tus credenciales para gestionar nodos, alertas e incidentes.
+                </p>
+                {authError ? <p className="alert">{authError}</p> : null}
+                <form className="login-form" onSubmit={handleLogin}>
+                  <label>
+                    Usuario
+                    <input
+                      value={loginForm.username}
+                      onChange={(event) => setLoginForm({ ...loginForm, username: event.target.value })}
+                      autoComplete="username"
+                      autoFocus
+                      required
+                    />
+                  </label>
+                  <label>
+                    Password
+                    <div className="password-field">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={loginForm.password}
+                        onChange={(event) =>
+                          setLoginForm({ ...loginForm, password: event.target.value })
+                        }
+                        autoComplete="current-password"
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="password-toggle"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        aria-label={showPassword ? 'Ocultar password' : 'Mostrar password'}
+                      >
+                        {showPassword ? 'Ocultar' : 'Mostrar'}
+                      </button>
+                    </div>
+                  </label>
+                  <button className="primary login-submit" type="submit" disabled={authLoading}>
+                    {authLoading ? 'Entrando...' : 'Entrar'}
+                  </button>
+                </form>
+                <div className="login-foot">Solo usuarios autorizados.</div>
               </div>
-              {authError ? <p className="alert">{authError}</p> : null}
-              <form className="login-form" onSubmit={handleLogin}>
-                <label>
-                  Usuario
-                  <input
-                    value={loginForm.username}
-                    onChange={(event) => setLoginForm({ ...loginForm, username: event.target.value })}
-                    required
-                  />
-                </label>
-                <label>
-                  Password
-                  <input
-                    type="password"
-                    value={loginForm.password}
-                    onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })}
-                    required
-                  />
-                </label>
-                <button className="primary" type="submit">
-                  Entrar
-                </button>
-              </form>
             </div>
           ) : (
             <>
@@ -3213,9 +3321,59 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
                   </button>
                 </div>
               </div>
-              <div className="panel-body scroll">
-                <div className="incident-list">
-                  {incidents.map((incident) => {
+              <div className="incident-summary">
+                <div className="incident-stat">
+                  <span className="incident-stat-value">{incidentCounters.total}</span>
+                  <span className="incident-stat-label">Total</span>
+                </div>
+                <div className={`incident-stat ${incidentCounters.open ? 'bad' : ''}`}>
+                  <span className="incident-stat-value">{incidentCounters.open}</span>
+                  <span className="incident-stat-label">Abiertos</span>
+                </div>
+                <div className={`incident-stat ${incidentCounters.unacked ? 'warn' : ''}`}>
+                  <span className="incident-stat-value">{incidentCounters.unacked}</span>
+                  <span className="incident-stat-label">Sin ack</span>
+                </div>
+              </div>
+              <div className="panel-filters">
+                <div className="filter-group">
+                  <span>Estado</span>
+                  <select
+                    value={incidentStatusFilter}
+                    onChange={(event) =>
+                      setIncidentStatusFilter(event.target.value as 'all' | 'open' | 'closed')
+                    }
+                  >
+                    <option value="all">Todos</option>
+                    <option value="open">Abiertos</option>
+                    <option value="closed">Cerrados</option>
+                  </select>
+                </div>
+                <div className="filter-group">
+                  <span>Ack</span>
+                  <select
+                    value={incidentAckFilter}
+                    onChange={(event) =>
+                      setIncidentAckFilter(event.target.value as 'all' | 'unacked' | 'acked')
+                    }
+                  >
+                    <option value="all">Todos</option>
+                    <option value="unacked">Sin ack</option>
+                    <option value="acked">Con ack</option>
+                  </select>
+                </div>
+                <div className="filter-group grow">
+                  <span>Buscar</span>
+                  <input
+                    value={incidentSearch}
+                    onChange={(event) => setIncidentSearch(event.target.value)}
+                    placeholder="Servicio..."
+                  />
+                </div>
+              </div>
+              <div className="panel-body">
+                <div className="incident-list scroll tall">
+                  {adminIncidents.map((incident) => {
                     const active = !incident.end_at;
                     const acked = Boolean(incident.ack_at);
                     return (
@@ -3227,7 +3385,7 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
                         <div>
                           <div className="node-name">{incident.node_name}</div>
                           <div className="node-meta">
-                            Inicio {formatDate(incident.start_at)} ? {active ? 'En curso' : 'Cerrado'}
+                            Inicio {formatDate(incident.start_at)} · {active ? 'En curso' : 'Cerrado'}
                           </div>
                         </div>
                         <div className="incident-meta">
@@ -3243,6 +3401,9 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
                     );
                   })}
                   {!incidents.length && <div className="empty">No hay incidentes.</div>}
+                  {incidents.length > 0 && !adminIncidents.length && (
+                    <div className="empty">Ningun incidente coincide con los filtros.</div>
+                  )}
                 </div>
               </div>
             </div>
@@ -3260,7 +3421,7 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
                     <div>
                       <div className="node-name">{selectedIncident.node_name}</div>
                       <div className="node-meta">
-                        Inicio {formatDate(selectedIncident.start_at)} ?{' '}
+                        Inicio {formatDate(selectedIncident.start_at)} ·{' '}
                         {selectedIncident.end_at ? 'Cerrado' : 'Abierto'}
                       </div>
                     </div>
@@ -3282,7 +3443,7 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
                     </span>
                     {selectedIncident.ack_at ? (
                       <span className="muted">
-                        Por {selectedIncident.ack_by || '-'} ? {formatDate(selectedIncident.ack_at)}
+                        Por {selectedIncident.ack_by || '-'} · {formatDate(selectedIncident.ack_at)}
                       </span>
                     ) : null}
                   </div>
@@ -3317,7 +3478,7 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
                     {incidentNotes.map((note) => (
                       <div className="note" key={note.id}>
                         <div className="note-meta">
-                          {note.author} ? {formatDate(note.createdAt)}
+                          {note.author} · {formatDate(note.createdAt)}
                         </div>
                         <div>{note.note}</div>
                       </div>
@@ -3502,25 +3663,59 @@ powershell -ExecutionPolicy Bypass -File .\\windows-agent.ps1 -NodeId 5 -ApiUrl 
             <div className="panel-header">
               <div>
                 <h2>Auditoria</h2>
-                <span className="panel-sub">Ultimos cambios registrados.</span>
+                <span className="panel-sub">
+                  {filteredAuditLogs.length} de {auditLogs.length} cambios registrados.
+                </span>
               </div>
             </div>
-            <div className="admin-table">
-              <div className="admin-row head">
+            <div className="panel-filters">
+              <div className="filter-group">
                 <span>Accion</span>
-                <span>Actor</span>
-                <span>Entidad</span>
-                <span>Fecha</span>
+                <select
+                  value={auditActionFilter}
+                  onChange={(event) => setAuditActionFilter(event.target.value)}
+                >
+                  <option value="all">Todas</option>
+                  {auditActions.map((action) => (
+                    <option key={action} value={action}>
+                      {action}
+                    </option>
+                  ))}
+                </select>
               </div>
-              {auditLogs.map((log) => (
-                <div className="admin-row" key={log.id}>
-                  <span className="mono">{log.action}</span>
-                  <span>{log.actor || '-'}</span>
-                  <span className="muted">{log.entity_type || '-'}</span>
-                  <span className="mono">{formatDate(log.created_at)}</span>
+              <div className="filter-group grow">
+                <span>Buscar</span>
+                <input
+                  value={auditSearch}
+                  onChange={(event) => setAuditSearch(event.target.value)}
+                  placeholder="Accion, actor o entidad..."
+                />
+              </div>
+            </div>
+            <div className="audit-table-wrap scroll tall">
+              <div className="admin-table">
+                <div className="admin-row head">
+                  <span>Accion</span>
+                  <span>Actor</span>
+                  <span>Entidad</span>
+                  <span>Fecha</span>
                 </div>
-              ))}
-              {!auditLogs.length && <div className="empty">Sin registros.</div>}
+                {filteredAuditLogs.map((log) => (
+                  <div className="admin-row" key={log.id}>
+                    <span className="mono">{log.action}</span>
+                    <span>{log.actor || '-'}</span>
+                    <span className="muted">
+                      {log.entity_type || '-'}
+                      {log.entity_id ? ` #${log.entity_id}` : ''}
+                    </span>
+                    <span className="mono">{formatDate(log.created_at)}</span>
+                  </div>
+                ))}
+                {!auditLogs.length && <div className="empty">Sin registros.</div>}
+                {auditLogs.length > 0 && !filteredAuditLogs.length && (
+                  <div className="empty">Ningun registro coincide con los filtros.</div>
+                )}
+              </div>
             </div>
           </div>
         )}

@@ -31,7 +31,7 @@ const schema = z.object({
   VIEWER_USER: z.string().optional().default(''),
   VIEWER_PASS: z.string().optional().default(''),
   AUTH_SECRET: z.string(),
-  AUTH_TOKEN_TTL_HOURS: z.coerce.number().default(24),
+  AUTH_TOKEN_TTL_HOURS: z.coerce.number().default(168),
 
   REPORT_WEEKDAY: z.coerce.number().int().min(0).max(6).default(1),
   REPORT_HOUR: z.coerce.number().int().min(0).max(23).default(8),
