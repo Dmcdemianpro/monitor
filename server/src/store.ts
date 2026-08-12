@@ -1,4 +1,5 @@
 import { pool } from './db';
+import { env } from './env';
 
 export type NodeRecord = {
   id: number;
@@ -1676,4 +1677,59 @@ export async function createAuditLog(params: {
       params.ip ?? null
     ]
   );
+}
+
+export type MonitorFreshness = {
+  /** Check mas reciente de cualquier nodo activo. */
+  lastCheckAt: string | null;
+  /** Antiguedad de ese check, en segundos. null si todavia no hay ninguno. */
+  ageSec: number | null;
+  /** Nodos habilitados. Con 0 no hay nada que vigilar. */
+  enabledNodes: number;
+  /** Umbral a partir del cual se considera atrasado, en segundos. */
+  staleAfterSec: number;
+  stale: boolean;
+};
+
+/**
+ * Mide si el monitoreo esta avanzando. Se usa para el endpoint de salud, el
+ * aviso del dashboard y el watchdog: un proceso vivo pero con el scheduler
+ * trabado es indistinguible de uno sano si solo se mira que responda.
+ *
+ * El umbral se deriva del intervalo mas alto configurado, asi se ajusta solo
+ * cuando cambian los nodos en vez de quedar fijo en un valor que envejece.
+ */
+export async function getMonitorFreshness(): Promise<MonitorFreshness> {
+  const res = await pool.query(
+    `
+    SELECT MAX(last_check_at) AS last_check_at,
+           EXTRACT(EPOCH FROM (now() - MAX(last_check_at))) AS age_sec,
+           COUNT(*) AS enabled_nodes,
+           COALESCE(MAX(check_interval_sec), 0) AS max_interval_sec
+      FROM nodes
+     WHERE enabled
+    `
+  );
+
+  const row = res.rows[0];
+  const enabledNodes = Number(row.enabled_nodes);
+  const maxIntervalSec = Number(row.max_interval_sec);
+  const ageSec = row.age_sec === null ? null : Number(row.age_sec);
+
+  const staleAfterSec =
+    env.HEALTH_STALE_AFTER_SEC > 0
+      ? env.HEALTH_STALE_AFTER_SEC
+      : Math.max(env.HEALTH_STALE_MIN_SEC, Math.round(maxIntervalSec * env.HEALTH_STALE_FACTOR));
+
+  // Sin nodos habilitados no hay atraso posible; sin checks aun (ageSec null)
+  // tampoco, porque puede ser un arranque reciente.
+  const stale = enabledNodes > 0 && ageSec !== null && ageSec > staleAfterSec;
+
+  return {
+    lastCheckAt: row.last_check_at,
+    ageSec,
+    enabledNodes,
+    staleAfterSec,
+    stale
+  };
 }

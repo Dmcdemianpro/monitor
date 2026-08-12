@@ -2767,3 +2767,55 @@ body.monitor-alerting .tv-ticker {
     transition: none !important;
   }
 }
+
+/* Aviso de datos no confiables. Va fijo arriba y ocupa el ancho completo
+   porque compite con un dashboard lleno de verde: si se mimetiza con el resto
+   de la interfaz, no cumple su funcion. */
+.health-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.14);
+  color: var(--bad);
+  font-size: 0.9rem;
+}
+
+.health-banner-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--bad);
+  color: #fff;
+  font-weight: 700;
+}
+
+.health-banner strong {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.health-banner-detail {
+  opacity: 0.85;
+}
+
+/* En modo TV se mira de lejos, asi que el aviso necesita otra escala. */
+.monitor-mode .health-banner {
+  padding: 18px 28px;
+  font-size: 1.3rem;
+}
+
+.monitor-mode .health-banner strong {
+  font-size: 1.5rem;
+}
+
+.monitor-mode .health-banner-icon {
+  flex-basis: 34px;
+  width: 34px;
+  height: 34px;
+}

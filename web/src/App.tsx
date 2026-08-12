@@ -21,6 +21,7 @@ import {
   fetchAuthUser,
   fetchAreaMetrics,
   fetchGroupMetrics,
+  fetchHealth,
   fetchIncidents,
   fetchIncidentNotes,
   fetchLatencySeries,
@@ -60,7 +61,8 @@ import type {
   Silence,
   AuthUser,
   AgentSeriesPoint,
-  GroupMetric
+  GroupMetric,
+  HealthStatus
 } from './types';
 
 const DEFAULT_CPU_ALERT_PCT = Number.parseInt(import.meta.env.VITE_CPU_ALERT_PCT || '85', 10) || 85;
@@ -405,8 +407,45 @@ export default function App() {
     error: null,
     lastUpdated: null
   });
+  const [health, setHealth] = useState<HealthStatus | null>(null);
   const isMonitor = view === 'monitor' || view === 'monitor_tv';
   const isTv = view === 'monitor_tv';
+
+  /**
+   * Aviso de que los datos en pantalla no son de fiar. Es deliberadamente
+   * intrusivo: un dashboard en verde con datos viejos es peor que uno caido,
+   * porque se lee como "todo bien" cuando en realidad nadie esta mirando.
+   */
+  const healthBanner = useMemo(() => {
+    if (!health) {
+      return null;
+    }
+
+    if (health.monitoring === 'unreachable') {
+      return {
+        tone: 'critical' as const,
+        title: 'Sin conexion con el servidor de Moni-D',
+        detail: 'Lo que ves en pantalla puede estar desactualizado. Revisa que el backend este corriendo.'
+      };
+    }
+
+    if (health.monitoring === 'stale') {
+      const min = health.ageSec === null ? null : Math.floor(health.ageSec / 60);
+      const cuando =
+        min === null
+          ? 'todavia no registro ningun check'
+          : min >= 60
+            ? `el ultimo check fue hace ${Math.floor(min / 60)} h ${min % 60} min`
+            : `el ultimo check fue hace ${min} min`;
+      return {
+        tone: 'critical' as const,
+        title: 'El monitoreo no esta avanzando',
+        detail: `${cuando}. Los estados mostrados no reflejan la situacion actual.`
+      };
+    }
+
+    return null;
+  }, [health]);
 
   const stats = useMemo(() => {
     const total = nodes.length;
@@ -812,6 +851,16 @@ export default function App() {
     const timer = setInterval(loadData, 10000);
     return () => clearInterval(timer);
   }, [areaFilter, groupFilter, criticalityFilter]);
+
+  // Ciclo propio, separado de loadData a proposito: si la carga del dashboard
+  // falla o se traba, es justo cuando hace falta saber si el monitor sigue
+  // vivo. Atarlo al mismo Promise.all lo dejaria ciego en ese escenario.
+  useEffect(() => {
+    const pollHealth = async () => setHealth(await fetchHealth());
+    pollHealth();
+    const timer = setInterval(pollHealth, 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const handlePop = () => setView(getViewFromPath(window.location.pathname));
@@ -1503,6 +1552,17 @@ export default function App() {
 
   return (
     <div className={`app ${isMonitor ? 'monitor-mode' : ''}`}>
+      {healthBanner ? (
+        <div className={`health-banner ${healthBanner.tone}`} role="alert">
+          <span className="health-banner-icon" aria-hidden="true">
+            !
+          </span>
+          <div>
+            <strong>{healthBanner.title}</strong>
+            <span className="health-banner-detail">{healthBanner.detail}</span>
+          </div>
+        </div>
+      ) : null}
       {!isMonitor ? (
         <header className="topbar">
           <div className="brand">

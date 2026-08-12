@@ -302,6 +302,17 @@ function getWeekKey(date: Date) {
   return `${temp.getUTCFullYear()}-${week}`;
 }
 
+/**
+ * Ultima vez que un runner completo un ciclo, exitoso o fallido.
+ *
+ * Es una senial en memoria a proposito: si dependiera de consultar la base,
+ * un pool trabado dejaria colgado tambien al watchdog, que es exactamente el
+ * escenario que tiene que detectar. Un error de base igual pasa por el catch
+ * y llega al finally, asi que esto distingue "el monitor esta trabado" de
+ * "la base esta caida" y solo reacciona al primero.
+ */
+let lastRunnerProgressAt = Date.now();
+
 class NodeRunner {
   private node: NodeConfig;
   private timer: NodeJS.Timeout | null = null;
@@ -316,6 +327,10 @@ class NodeRunner {
 
   update(node: NodeConfig) {
     this.node = node;
+  }
+
+  get checkIntervalSec() {
+    return this.node.checkIntervalSec;
   }
 
   start() {
@@ -437,6 +452,7 @@ class NodeRunner {
       this.logger.error('check failed', this.node.name, err?.message || err);
     } finally {
       this.running = false;
+      lastRunnerProgressAt = Date.now();
       const nextDelay =
         status === 'SUCCESS'
           ? this.node.checkIntervalSec * 1000
@@ -538,8 +554,60 @@ export async function startScheduler(logger: Logger = console) {
     setInterval(run, hourMs);
   };
 
+  /**
+   * Vigila que los runners sigan avanzando. Si dejan de hacerlo el proceso
+   * queda vivo pero sin monitorear nada, que es la falla mas peligrosa de
+   * todas porque no se distingue de un sistema sano desde afuera.
+   *
+   * La unica salida confiable de un proceso trabado es terminarlo y dejar que
+   * el supervisor lo levante: reiniciar internamente no libera lo que quedo
+   * bloqueado. Por eso sale con codigo 1, que PM2 interpreta como fallo.
+   */
+  const startWatchdog = () => {
+    const startedAt = Date.now();
+
+    const check = () => {
+      const runnerList = [...runners.values()];
+      if (!runnerList.length) {
+        return;
+      }
+
+      // Se tolera un multiplo del intervalo mas largo configurado, para que el
+      // umbral acompanie los cambios de configuracion en vez de quedar fijo.
+      const maxIntervalSec = Math.max(...runnerList.map((r) => r.checkIntervalSec));
+      const staleAfterMs =
+        Math.max(env.HEALTH_STALE_MIN_SEC, maxIntervalSec * env.HEALTH_STALE_FACTOR) * 1000;
+
+      const sinceStartMs = Date.now() - startedAt;
+      if (sinceStartMs < env.WATCHDOG_GRACE_SEC * 1000) {
+        return;
+      }
+
+      const stalledMs = Date.now() - lastRunnerProgressAt;
+      if (stalledMs <= staleAfterMs) {
+        return;
+      }
+
+      const stalledMin = Math.round(stalledMs / 60000);
+      logger.error(
+        `watchdog: el monitoreo no avanza hace ${stalledMin} min ` +
+          `(umbral ${Math.round(staleAfterMs / 60000)} min, ${runnerList.length} nodos). ` +
+          (env.WATCHDOG_EXIT_ON_STALL
+            ? 'Terminando el proceso para que el supervisor lo reinicie.'
+            : 'WATCHDOG_EXIT_ON_STALL=false, no se reinicia.')
+      );
+
+      if (env.WATCHDOG_EXIT_ON_STALL) {
+        process.exit(1);
+      }
+    };
+
+    setInterval(check, 60 * 1000).unref();
+  };
+
   await syncNodes();
   setInterval(syncNodes, env.SYNC_INTERVAL_SEC * 1000);
   startCleanupJob();
   startReportJob();
+  startWatchdog();
 }

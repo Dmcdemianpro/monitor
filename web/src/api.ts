@@ -13,7 +13,8 @@ import type {
   AgentSeriesPoint,
   Silence,
   AuthUser,
-  GroupMetric
+  GroupMetric,
+  HealthStatus
 } from './types';
 
 const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:4000`;
@@ -66,6 +67,32 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export async function fetchNodes() {
   return request<{ nodes: NodeRecord[] }>('/api/nodes');
+}
+
+/**
+ * Salud del monitor. No usa request() porque el endpoint responde 503 a
+ * proposito cuando el monitoreo esta atrasado, y ese cuerpo es justamente lo
+ * que hay que leer: tratarlo como error perderia el dato.
+ *
+ * Si el servidor no responde tampoco es un error a mostrar como excepcion;
+ * es en si mismo el sintoma, asi que se devuelve como estado 'unreachable'.
+ */
+export async function fetchHealth(): Promise<HealthStatus> {
+  try {
+    const res = await fetch(`${API_URL}/api/health`);
+    const data = await res.json();
+    return data as HealthStatus;
+  } catch {
+    return {
+      ok: false,
+      db: 'unreachable',
+      monitoring: 'unreachable',
+      lastCheckAt: null,
+      ageSec: null,
+      staleAfterSec: 0,
+      enabledNodes: 0
+    };
+  }
 }
 
 export async function fetchIncidents(days = 90) {

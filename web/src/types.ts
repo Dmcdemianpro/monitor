@@ -156,3 +156,13 @@ export type LatencyPoint = {
   bucket: string;
   avgLatencyMs: number | null;
 };
+
+export type HealthStatus = {
+  ok: boolean;
+  db: 'ok' | 'unreachable';
+  monitoring: 'ok' | 'stale' | 'unreachable';
+  lastCheckAt: string | null;
+  ageSec: number | null;
+  staleAfterSec: number;
+  enabledNodes: number;
+};

@@ -41,7 +41,28 @@ const schema = z.object({
   DISK_ALERT_PCT: z.coerce.number().int().min(1).max(100).default(90),
   ALERT_COOLDOWN_MIN: z.coerce.number().int().min(0).max(1440).default(10),
 
-  AGENT_KEY: z.string().optional().default('')
+  AGENT_KEY: z.string().optional().default(''),
+
+  // Vigilancia del propio monitor. El umbral por defecto se calcula desde el
+  // check_interval_sec mas alto de los nodos activos; estos valores solo lo
+  // acotan y permiten forzarlo si hiciera falta.
+  // HEALTH_STALE_FACTOR: cuantos intervalos de atraso se toleran antes de
+  // considerar que el monitoreo dejo de avanzar.
+  HEALTH_STALE_FACTOR: z.coerce.number().min(1.5).default(3),
+  // Piso del umbral, para que nodos con intervalos muy cortos no den falsos
+  // positivos ante una pausa normal.
+  HEALTH_STALE_MIN_SEC: z.coerce.number().int().min(60).default(300),
+  // Override manual. 0 = usar el calculo automatico.
+  HEALTH_STALE_AFTER_SEC: z.coerce.number().int().min(0).default(0),
+  // Si el monitoreo no avanza, termina el proceso para que el supervisor
+  // (PM2) lo reinicie. Un proceso trabado no se recupera solo.
+  WATCHDOG_EXIT_ON_STALL: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  // Margen tras el arranque antes de vigilar, para no matar el proceso
+  // mientras todavia no completo la primera ronda de checks.
+  WATCHDOG_GRACE_SEC: z.coerce.number().int().min(60).default(600)
 });
 
 export const env = schema.parse(process.env);
