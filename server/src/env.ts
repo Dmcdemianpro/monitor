@@ -21,7 +21,7 @@ const schema = z.object({
   SMTP_FROM: z.string(),
 
   CORS_ORIGIN: z.string().default('*'),
-  RETENTION_DAYS: z.coerce.number().default(90),
+  RETENTION_DAYS: z.coerce.number().default(400),
   // Los incidentes son la historia de caidas: se guardan aparte de los checks.
   // 0 = no se borran nunca.
   INCIDENT_RETENTION_DAYS: z.coerce.number().int().min(0).default(0),
