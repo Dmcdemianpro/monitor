@@ -1,4 +1,4 @@
-import { pool } from './db';
+import { pool, withTransaction } from './db';
 import { env } from './env';
 
 export type NodeRecord = {
@@ -320,9 +320,7 @@ async function setNodeChannels(client: any, nodeId: number, channelIds: number[]
 }
 
 export async function createNode(data: NodeInput): Promise<number> {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  return withTransaction(async (client) => {
     const res = await client.query(
       `
       INSERT INTO nodes (
@@ -372,20 +370,12 @@ export async function createNode(data: NodeInput): Promise<number> {
     const nodeId = res.rows[0].id as number;
     await setRecipients(client, nodeId, data.recipients);
     await setNodeChannels(client, nodeId, data.channelIds);
-    await client.query('COMMIT');
     return nodeId;
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 export async function updateNode(nodeId: number, data: NodeInput) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  return withTransaction(async (client) => {
     const res = await client.query(
       `
       UPDATE nodes
@@ -439,13 +429,7 @@ export async function updateNode(nodeId: number, data: NodeInput) {
 
     await setRecipients(client, nodeId, data.recipients);
     await setNodeChannels(client, nodeId, data.channelIds);
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 export async function setNodeEnabled(nodeId: number, enabled: boolean) {
@@ -875,9 +859,7 @@ export async function recordCheck(params: {
   error: string | null;
 }) {
   const { nodeId, status, latencyMs, error } = params;
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  return withTransaction(async (client) => {
     const prevRes = await client.query('SELECT last_status FROM nodes WHERE id = $1 FOR UPDATE', [nodeId]);
     const prevStatus = prevRes.rows[0]?.last_status || 'UNKNOWN';
     let incidentId: number | null = null;
@@ -928,14 +910,8 @@ export async function recordCheck(params: {
       [nodeId, status]
     );
 
-    await client.query('COMMIT');
     return { prevStatus, checkId, incidentId, incidentStartAt };
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 export async function createNotification(params: {
@@ -951,13 +927,49 @@ export async function createNotification(params: {
   );
 }
 
-export async function cleanupOldRows(days: number) {
-  await pool.query('DELETE FROM checks WHERE checked_at < now() - ($1 || \' days\')::interval', [days]);
-  await pool.query('DELETE FROM notifications WHERE sent_at < now() - ($1 || \' days\')::interval', [days]);
-  await pool.query(
-    'DELETE FROM incidents WHERE end_at IS NOT NULL AND end_at < now() - ($1 || \' days\')::interval',
-    [days]
-  );
+/**
+ * Borra en lotes para que ninguna sentencia choque con el statement_timeout
+ * del pool (20 s): la primera limpieza tras meses sin funcionar puede tener
+ * cientos de miles de filas pendientes.
+ */
+async function deleteInBatches(table: string, dateColumn: string, days: number, extraWhere = '') {
+  const batchSize = 5000;
+  let total = 0;
+  for (;;) {
+    const res = await pool.query(
+      `
+      DELETE FROM ${table}
+       WHERE id IN (
+         SELECT id FROM ${table}
+          WHERE ${dateColumn} < now() - make_interval(days => $1::int)
+          ${extraWhere}
+          LIMIT ${batchSize}
+       )
+      `,
+      [days]
+    );
+    total += res.rowCount ?? 0;
+    if ((res.rowCount ?? 0) < batchSize) {
+      return total;
+    }
+  }
+}
+
+/**
+ * Limpieza por antiguedad.
+ *
+ * Los checks y las notificaciones se borran segun `days`. Los incidentes se
+ * rigen aparte por `incidentDays` (0 = no se borran nunca): son pocas filas y
+ * son la historia de caidas que se pide en los informes.
+ */
+export async function cleanupOldRows(days: number, incidentDays: number) {
+  const checks = await deleteInBatches('checks', 'checked_at', days);
+  const notifications = await deleteInBatches('notifications', 'sent_at', days);
+  const incidents =
+    incidentDays > 0
+      ? await deleteInBatches('incidents', 'end_at', incidentDays, 'AND end_at IS NOT NULL')
+      : 0;
+  return { checks, notifications, incidents };
 }
 
 export async function listAlertChannels(): Promise<AlertChannel[]> {
@@ -1195,9 +1207,7 @@ export async function createEscalationPolicy(data: {
   enabled: boolean;
   levels: EscalationLevel[];
 }): Promise<number> {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  return withTransaction(async (client) => {
     const policyRes = await client.query(
       'INSERT INTO escalation_policies (name, enabled) VALUES ($1, $2) RETURNING id',
       [data.name, data.enabled]
@@ -1219,23 +1229,15 @@ export async function createEscalationPolicy(data: {
         ]
       );
     }
-    await client.query('COMMIT');
     return policyId;
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 export async function updateEscalationPolicy(
   id: number,
   data: { name: string; enabled: boolean; levels: EscalationLevel[] }
 ) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  return withTransaction(async (client) => {
     await client.query('UPDATE escalation_policies SET name = $1, enabled = $2, updated_at = now() WHERE id = $3', [
       data.name,
       data.enabled,
@@ -1251,13 +1253,7 @@ export async function updateEscalationPolicy(
         [id, level.level, level.delayMin, level.includeNodeRecipients, level.channelIds, level.emails]
       );
     }
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 export async function deleteEscalationPolicy(id: number) {

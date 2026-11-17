@@ -27,17 +27,15 @@ export async function verifyEmailTransport(logger?: EmailLogger) {
   try {
     await transport.verify();
     if (logger) {
-      logger.info('smtp verify ok', {
-        host: env.SMTP_HOST,
-        port: env.SMTP_PORT,
-        user: env.SMTP_USER,
-        from: env.SMTP_FROM
-      });
+      logger.info(
+        { host: env.SMTP_HOST, port: env.SMTP_PORT, user: env.SMTP_USER, from: env.SMTP_FROM },
+        'smtp verify ok'
+      );
     }
     return true;
   } catch (err: any) {
     if (logger) {
-      logger.error('smtp verify failed', err?.message || err);
+      logger.error({ err: err?.message || String(err) }, 'smtp verify failed');
     }
     return false;
   }

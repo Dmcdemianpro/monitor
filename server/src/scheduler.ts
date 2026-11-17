@@ -202,7 +202,7 @@ async function dispatchAlert(params: {
             recipients: recipients.join(',')
           });
         } catch (err: any) {
-          logger.error('email alert failed', node.name, err?.message || err);
+          logger.error({ node: node.name, type, err: err?.message || String(err) }, 'email alert failed');
         }
       }
     }
@@ -241,7 +241,7 @@ async function dispatchAlert(params: {
         recipients: channel.name
       });
     } catch (err: any) {
-      logger.error('channel alert failed', channel.name, err?.message || err);
+      logger.error({ channel: channel.name, node: node.name, type, err: err?.message || String(err) }, 'channel alert failed');
     }
   }
 }
@@ -449,7 +449,12 @@ class NodeRunner {
         }
       }
     } catch (err: any) {
-      this.logger.error('check failed', this.node.name, err?.message || err);
+      // Se deja el resultado del ping en el log: si la base no responde, es el
+      // unico rastro que queda de este check.
+      this.logger.error(
+        { node: this.node.name, status, latencyMs: latency, checkError: error, err: err?.message || String(err) },
+        'check failed'
+      );
     } finally {
       this.running = false;
       lastRunnerProgressAt = Date.now();
@@ -496,7 +501,7 @@ export async function startScheduler(logger: Logger = console) {
         }
       }
     } catch (err: any) {
-      logger.error('sync failed', err?.message || err);
+      logger.error({ err: err?.message || String(err) }, 'sync failed');
     } finally {
       syncing = false;
     }
@@ -506,10 +511,10 @@ export async function startScheduler(logger: Logger = console) {
     const dayMs = 24 * 60 * 60 * 1000;
     const run = async () => {
       try {
-        await cleanupOldRows(env.RETENTION_DAYS);
-        logger.info('retention cleanup completed');
+        const deleted = await cleanupOldRows(env.RETENTION_DAYS, env.INCIDENT_RETENTION_DAYS);
+        logger.info({ deleted }, 'retention cleanup completed');
       } catch (err: any) {
-        logger.error('retention cleanup failed', err?.message || err);
+        logger.error({ err: err?.message || String(err) }, 'retention cleanup failed');
       }
     };
     run();
@@ -547,7 +552,7 @@ export async function startScheduler(logger: Logger = console) {
         await recordReportRun('weekly');
         logger.info('weekly report sent');
       } catch (err: any) {
-        logger.error('weekly report failed', err?.message || err);
+        logger.error({ err: err?.message || String(err) }, 'weekly report failed');
       }
     };
     run();
@@ -561,7 +566,8 @@ export async function startScheduler(logger: Logger = console) {
    *
    * La unica salida confiable de un proceso trabado es terminarlo y dejar que
    * el supervisor lo levante: reiniciar internamente no libera lo que quedo
-   * bloqueado. Por eso sale con codigo 1, que PM2 interpreta como fallo.
+   * bloqueado. Por eso sale con codigo 1, que el supervisor interpreta como
+   * fallo (scripts/supervisor.js en Windows, systemd en Linux).
    */
   const startWatchdog = () => {
     const startedAt = Date.now();

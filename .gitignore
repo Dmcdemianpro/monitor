@@ -7,3 +7,4 @@ web/dist/
 server/.env
 web/.env
 server/logs/
+backups/

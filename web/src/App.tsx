@@ -400,6 +400,7 @@ export default function App() {
   const [audioBlocked, setAudioBlocked] = useState(false);
   const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
   const alarmTestingRef = useRef(false);
+  const loadInFlightRef = useRef(false);
   const [tvHighlightIndex, setTvHighlightIndex] = useState(0);
   const [metricView, setMetricView] = useState<'areas' | 'groups'>('areas');
   const [state, setState] = useState<LoadState>({
@@ -776,6 +777,15 @@ export default function App() {
   }, [incidents, selectedIncidentId]);
 
   const loadData = async () => {
+    // Si la carga anterior no termino, se salta esta vuelta. Sin esto, con el
+    // servidor lento cada 10 s se sumaban otras 7 consultas encima de las
+    // pendientes y, con varios navegadores abiertos, saturaban el pool de
+    // Postgres del backend. No se pausa con la pestania oculta: la vista de
+    // monitor suele quedar en segundo plano y la alarma depende de estos datos.
+    if (loadInFlightRef.current) {
+      return;
+    }
+    loadInFlightRef.current = true;
     setState((prev) => ({ ...prev, loading: true, error: null }));
     try {
       const areaParam = areaFilter === 'all' ? undefined : areaFilter;
@@ -800,6 +810,8 @@ export default function App() {
       setState({ loading: false, error: null, lastUpdated: new Date().toISOString() });
     } catch (err: any) {
       setState({ loading: false, error: err?.message || 'Failed to load data', lastUpdated: null });
+    } finally {
+      loadInFlightRef.current = false;
     }
   };
 

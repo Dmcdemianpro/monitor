@@ -33,6 +33,7 @@ npm run migrate
 ```
 npm run dev
 ```
+`npm run dev` arranca el **supervisor** (`server/scripts/supervisor.js`): corre el servidor y lo relanza cada vez que termina, con espera creciente si falla al arrancar. Es lo que lanza el Panel de control. Para desarrollar con recarga automatica usa `npm run dev:watch`; no lo dejes corriendo como monitor, porque si el servidor muere el watcher sigue vivo y nadie lo relanza (asi quedo caido Moni-D el 16-11-2026).
 6) Levanta frontend:
 ```
 cd C:\moni-D\web
@@ -61,7 +62,8 @@ VIEWER_PASS=view_pass
 
 ## Comportamiento base
 - Los nodos usan `checkIntervalSec` cuando estan OK y `retryIntervalSec` cuando caen.
-- El historial se retiene segun `RETENTION_DAYS` (default 90 dias).
+- Los checks y notificaciones se retienen segun `RETENTION_DAYS` (default 90 dias). La limpieza corre al arrancar y cada 24 h, por lotes.
+- Los incidentes (historia de caidas) se retienen aparte segun `INCIDENT_RETENTION_DAYS` (default 0 = no se borran nunca).
 - Los incidentes abren en la primera falla y cierran al recuperar.
 
 ## Organizacion
@@ -126,4 +128,5 @@ Opcional UI: `VITE_CPU_ALERT_PCT`, `VITE_MEM_ALERT_PCT`, `VITE_DISK_ALERT_PCT`, 
 ## Notas
 - El dashboard es abierto (sin auth) segun lo solicitado.
 - SMTP vive en `C:\moni-D\server\.env`.
-- Para produccion: ejecuta el backend como servicio (systemd/PM2) y compila el frontend con `npm run build`.
+- Para produccion: ejecuta el backend como servicio (systemd en Linux, ver `DEPLOY.md`; en Windows `npm run dev` o `npm run start:supervised`) y compila el frontend con `npm run build`.
+- `GET /api/health` responde 503 cuando el monitoreo deja de avanzar: es lo que debe consultar cualquier vigilancia externa. Que el puerto 4000 este abierto no basta.

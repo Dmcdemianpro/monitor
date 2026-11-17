@@ -22,6 +22,9 @@ const schema = z.object({
 
   CORS_ORIGIN: z.string().default('*'),
   RETENTION_DAYS: z.coerce.number().default(90),
+  // Los incidentes son la historia de caidas: se guardan aparte de los checks.
+  // 0 = no se borran nunca.
+  INCIDENT_RETENTION_DAYS: z.coerce.number().int().min(0).default(0),
   SYNC_INTERVAL_SEC: z.coerce.number().default(60),
 
   ADMIN_USER: z.string(),
@@ -55,7 +58,8 @@ const schema = z.object({
   // Override manual. 0 = usar el calculo automatico.
   HEALTH_STALE_AFTER_SEC: z.coerce.number().int().min(0).default(0),
   // Si el monitoreo no avanza, termina el proceso para que el supervisor
-  // (PM2) lo reinicie. Un proceso trabado no se recupera solo.
+  // (scripts/supervisor.js, o systemd en Linux) lo reinicie. Un proceso
+  // trabado no se recupera solo.
   WATCHDOG_EXIT_ON_STALL: z
     .enum(['true', 'false'])
     .default('true')
